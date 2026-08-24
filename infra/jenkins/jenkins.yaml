@@ -1,0 +1,36 @@
+# Jenkins Configuration as Code. Admin user comes from env (JENKINS_ADMIN_PASSWORD, default "admin").
+jenkins:
+  systemMessage: "Claims platform CI — configured from infra/jenkins/jenkins.yaml"
+  numExecutors: 2
+  securityRealm:
+    local:
+      allowsSignup: false
+      users:
+        - id: admin
+          password: ${JENKINS_ADMIN_PASSWORD:-admin}
+  authorizationStrategy:
+    loggedInUsersCanDoAnything:
+      allowAnonymousRead: true
+
+unclassified:
+  location:
+    url: http://localhost:8090/
+
+jobs:
+  - script: >
+      pipelineJob('claims-platform') {
+        description('Builds and tests every service from the repository Jenkinsfile. Source: ${GIT_URL}')
+        definition {
+          cpsScm {
+            scm {
+              git {
+                remote { url('${GIT_URL:-/workspace}') }
+                branch('*/main')
+              }
+            }
+            scriptPath('Jenkinsfile')
+            lightweight(true)
+          }
+        }
+        triggers { scm('H/5 * * * *') }
+      }
