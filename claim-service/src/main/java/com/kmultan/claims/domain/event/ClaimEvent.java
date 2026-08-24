@@ -2,10 +2,12 @@ package com.kmultan.claims.domain.event;
 
 import com.kmultan.claims.domain.Claim;
 import com.kmultan.claims.domain.ClaimStatus;
+import com.kmultan.claims.domain.Severity;
 
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.List;
 import java.util.UUID;
 
 /**
@@ -29,16 +31,22 @@ public record ClaimEvent(
             BigDecimal estimatedAmount,
             BigDecimal approvedAmount,
             ClaimStatus status,
-            String rejectionReason
+            String rejectionReason,
+            Severity severity,
+            String reviewAssignee,
+            Instant reviewDueAt,
+            boolean escalated,
+            List<UUID> photoIds
     ) {
-        public static ClaimSnapshot of(Claim c) {
+        public static ClaimSnapshot of(Claim c, List<UUID> photoIds) {
             return new ClaimSnapshot(c.getClaimNumber(), c.getPolicyNumber(), c.getPlateNumber(),
                     c.getIncidentDate(), c.getDescription(), c.getEstimatedAmount(), c.getApprovedAmount(),
-                    c.getStatus(), c.getRejectionReason());
+                    c.getStatus(), c.getRejectionReason(), c.getSeverity(), c.getReviewAssignee(),
+                    c.getReviewDueAt(), c.getEscalatedAt() != null, photoIds);
         }
     }
 
-    public static ClaimEvent of(ClaimEventType type, Claim claim) {
-        return new ClaimEvent(UUID.randomUUID(), type, claim.getId(), Instant.now(), ClaimSnapshot.of(claim));
+    public static ClaimEvent of(ClaimEventType type, Claim claim, List<UUID> photoIds) {
+        return new ClaimEvent(UUID.randomUUID(), type, claim.getId(), Instant.now(), ClaimSnapshot.of(claim, photoIds));
     }
 }

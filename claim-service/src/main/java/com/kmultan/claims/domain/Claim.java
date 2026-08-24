@@ -64,6 +64,22 @@ public class Claim {
     @Column(name = "payout_failure_reason", length = 1000)
     private String payoutFailureReason;
 
+    @Enumerated(EnumType.STRING)
+    @Column(length = 16)
+    private Severity severity;
+
+    @Column(name = "assessment_provider", length = 64)
+    private String assessmentProvider;
+
+    @Column(name = "review_assignee", length = 64)
+    private String reviewAssignee;
+
+    @Column(name = "review_due_at")
+    private Instant reviewDueAt;
+
+    @Column(name = "escalated_at")
+    private Instant escalatedAt;
+
     @Version
     private long version;
 
@@ -103,15 +119,38 @@ public class Claim {
                 plateNumber.toUpperCase().replace(" ", ""), incidentDate, description, estimatedAmount);
     }
 
-    public void startAssessment() {
-        transitionTo(ClaimStatus.UNDER_ASSESSMENT);
-    }
-
-    public void completeAssessment(BigDecimal assessedAmount) {
+    /** Triage result arrived (from assessment-service or the in-process fallback): the claim is ready for a human. */
+    public void completeAssessment(Severity severity, BigDecimal assessedAmount, String provider, Instant reviewDueAt) {
         transitionTo(ClaimStatus.PENDING_REVIEW);
+        this.severity = severity;
+        this.assessmentProvider = provider;
+        this.reviewDueAt = reviewDueAt;
         if (assessedAmount != null) {
             this.estimatedAmount = assessedAmount;
         }
+    }
+
+    public void claimReview(String assignee) {
+        requireStatus(ClaimStatus.PENDING_REVIEW);
+        if (reviewAssignee != null && !reviewAssignee.equals(assignee)) {
+            throw new IllegalStateException("Review already claimed by " + reviewAssignee);
+        }
+        this.reviewAssignee = assignee;
+    }
+
+    public void unclaimReview() {
+        requireStatus(ClaimStatus.PENDING_REVIEW);
+        this.reviewAssignee = null;
+    }
+
+    /** @return true if this call escalated the claim (false when already escalated) */
+    public boolean escalateReview(Instant now) {
+        requireStatus(ClaimStatus.PENDING_REVIEW);
+        if (escalatedAt != null) {
+            return false;
+        }
+        this.escalatedAt = now;
+        return true;
     }
 
     public void approve(BigDecimal approvedAmount) {
@@ -120,6 +159,20 @@ public class Claim {
         }
         transitionTo(ClaimStatus.APPROVED);
         this.approvedAmount = approvedAmount;
+        this.payoutFailureReason = null;
+    }
+
+    /** After a failed payout the adjuster can retry, optionally with a corrected amount. */
+    public void retryPayout(BigDecimal correctedAmount) {
+        if (correctedAmount != null && correctedAmount.signum() <= 0) {
+            throw new IllegalArgumentException("Approved amount must be positive");
+        }
+        requireStatus(ClaimStatus.PAYOUT_FAILED);
+        transitionTo(ClaimStatus.APPROVED);
+        if (correctedAmount != null) {
+            this.approvedAmount = correctedAmount;
+        }
+        this.payoutFailureReason = null;
     }
 
     public void reject(String reason) {
@@ -143,6 +196,12 @@ public class Claim {
         transitionTo(ClaimStatus.WITHDRAWN);
     }
 
+    private void requireStatus(ClaimStatus expected) {
+        if (status != expected) {
+            throw new InvalidStateTransitionException(status, expected);
+        }
+    }
+
     private void transitionTo(ClaimStatus target) {
         if (!status.canTransitionTo(target)) {
             throw new InvalidStateTransitionException(status, target);
@@ -161,6 +220,11 @@ public class Claim {
     public ClaimStatus getStatus() { return status; }
     public String getRejectionReason() { return rejectionReason; }
     public String getPayoutFailureReason() { return payoutFailureReason; }
+    public Severity getSeverity() { return severity; }
+    public String getAssessmentProvider() { return assessmentProvider; }
+    public String getReviewAssignee() { return reviewAssignee; }
+    public Instant getReviewDueAt() { return reviewDueAt; }
+    public Instant getEscalatedAt() { return escalatedAt; }
     public long getVersion() { return version; }
     public Instant getCreatedAt() { return createdAt; }
     public Instant getUpdatedAt() { return updatedAt; }
