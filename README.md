@@ -54,6 +54,12 @@ docker compose --profile core --profile search up -d --build
 # add the adjuster console (http://localhost:3000)
 docker compose --profile core --profile console up -d --build
 
+# search profile also brings Kibana (http://localhost:5601) with data views over the claims indices
+docker compose --profile core --profile search up -d --build
+
+# a real Jenkins (http://localhost:8090, admin/admin) with the pipeline job already configured
+docker compose --profile ci up -d --build
+
 # add Prometheus + Grafana (http://localhost:3001) + Loki + Tempo; copy .env.example to .env first so
 # the services export traces and ship logs
 cp .env.example .env && docker compose --profile core --profile observability up -d --build
@@ -103,10 +109,12 @@ docker compose --profile core up -d postgres kafka
 cd claim-service && SPRING_KAFKA_BOOTSTRAP_SERVERS=localhost:29092 mvn spring-boot:run -Dspring-boot.run.profiles=dev
 ```
 
-Submit a claim (JSON, or multipart with photos):
+Submit a claim (JSON, or multipart with photos). `Idempotency-Key` makes a client retry safe;
+submissions are rate-limited per client (`X-Client-Id`, else IP) — `429` + `Retry-After`:
 
 ```bash
-curl -s -X POST localhost:8080/api/v1/claims -H 'Content-Type: application/json' -d '{
+curl -s -X POST localhost:8080/api/v1/claims -H 'Content-Type: application/json' \
+  -H "Idempotency-Key: $(uuidgen)" -H 'X-Client-Id: demo' -d '{
   "policyNumber": "POL-123", "plateNumber": "WA 12345", "incidentDate": "2026-08-20",
   "description": "Rear-ended at a red light, bumper and tail light damaged", "estimatedAmount": 2500.00 }' | jq
 
@@ -220,9 +228,7 @@ payout-service's consumer test and verified against claim-service's real seriali
 - **A process engine (Camunda)** — the first version used embedded Camunda 7 for the review task and
   the saga; it was replaced by event choreography to remove the orchestrator as a single point of
   coupling. Camunda remains the right answer when business users must own the process diagram.
-- **Kibana** — duplicates Grafana; Loki gives trace-id-to-logs at a fraction of the memory.
 - **Spring Cloud Eureka / Config Server** — Kubernetes already does discovery and config.
-- **A running Jenkins** — the `Jenkinsfile` is committed; GitHub Actions is the CI that actually runs.
 
 ## Layout
 
@@ -246,15 +252,17 @@ assessment-service/     FastAPI + Kafka consumer — MobileNetV2 (ONNX) + text m
 contracts/pacts/        Pact message contract payout-service ⇄ claim-service (consumer-written, provider-verified)
 adjuster-console/       Next.js 14 + TypeScript — review queue with photos, claim/unclaim, approve/reject, failed-payout retry, demo submit with photos
 infra/postgres/         init script creating one database per service
+infra/kibana/           data-view bootstrap for Kibana
+infra/jenkins/          Jenkins image (plugins, JCasC, seed job) for the ci profile
 infra/observability/    Prometheus scrape config, Loki/Tempo configs, Grafana datasources + dashboard
 deploy/helm/            claims-platform chart (services, dev infra, observability); deploy/kind/up.sh
 perf/                   k6 ingestion load test
 Jenkinsfile             same pipeline as GitHub Actions, for a Jenkins agent with Docker
-search-service/         Spring Boot 3 — Kafka consumer -> Elasticsearch projection + search API
+search-service/         Spring Boot 3 — Kafka consumer -> Elasticsearch projection (claims) + event log (claim-events) + search API
   projection/           event envelope (own copy), ClaimDocument, external-versioned indexer, listener
   api/                  GET /api/v1/search (fuzzy multi_match, status filter, paging)
   config/               DLT error handler, index mapping bootstrap, JSON mapper
 pom.xml                 aggregator only — each service keeps its own Boot parent
-docker-compose.yml      profiles: core (Postgres, Kafka, claim/payout/assessment), search, console, observability
+docker-compose.yml      profiles: core (Postgres, Kafka, Redis, claim/payout/assessment), search (+Kibana), console, observability, ci (Jenkins)
 .github/workflows/      CI: mvn verify with Testcontainers
 ```
