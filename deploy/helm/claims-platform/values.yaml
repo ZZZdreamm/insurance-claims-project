@@ -10,8 +10,6 @@ services:
     env:
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/claims
       SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
-      CLAIMS_ASSESSMENT_PROVIDER: http
-      CLAIMS_ASSESSMENT_URL: http://assessment-service:8000
       OTEL_EXPORTER_OTLP_ENDPOINT: http://tempo:4318
       TRACING_ENABLED: "true"
       LOKI_URL: http://loki:3100
@@ -46,8 +44,10 @@ services:
     port: 8000
     replicas: 1
     env:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      CLAIM_SERVICE_URL: http://claim-service:8080
       OTEL_EXPORTER_OTLP_ENDPOINT: http://tempo:4318
-    resources: { requests: { cpu: 50m, memory: 64Mi }, limits: { memory: 128Mi } }
+    resources: { requests: { cpu: 100m, memory: 256Mi }, limits: { memory: 384Mi } }
     health: /health
   adjuster-console:
     image: claims/adjuster-console

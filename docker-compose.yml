@@ -2,7 +2,6 @@
 #   docker compose --profile core up -d --build                    # Postgres + Kafka + claim-service
 #   docker compose --profile core --profile search up -d --build   # + Elasticsearch + search-service
 #   docker compose --profile core --profile console up -d --build  # + adjuster console on :3000
-#   CLAIMS_ASSESSMENT_PROVIDER=http docker compose --profile core --profile ml up -d --build   # + Python triage
 #   docker compose --profile core --profile observability up -d --build  # + Prometheus/Grafana/Loki/Tempo (Grafana :3001)
 # Set TRACING_ENABLED=true (see .env.example) so the services export traces when the observability profile is up.
 services:
@@ -72,8 +71,6 @@ services:
       SPRING_DATASOURCE_USERNAME: claims
       SPRING_DATASOURCE_PASSWORD: claims
       SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
-      CLAIMS_ASSESSMENT_PROVIDER: ${CLAIMS_ASSESSMENT_PROVIDER:-heuristic}   # http when the ml profile is up
-      CLAIMS_ASSESSMENT_URL: http://assessment-service:8000
       JAVA_TOOL_OPTIONS: "-XX:TieredStopAtLevel=1 -XX:+UseSerialGC -Xmx256m"
     ports:
       - "8080:8080"
@@ -110,8 +107,13 @@ services:
   assessment-service:
     build: ./assessment-service
     container_name: assessment-service
-    profiles: ["ml"]
+    profiles: ["core"]     # reacts to CLAIM_SUBMITTED; without it claim-service falls back to the heuristic after a timeout
+    depends_on:
+      kafka:
+        condition: service_started
     environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      CLAIM_SERVICE_URL: http://claim-service:8080
       OTEL_EXPORTER_OTLP_ENDPOINT: ${ASSESSMENT_OTEL_ENDPOINT:-}
     ports:
       - "8000:8000"
@@ -123,7 +125,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: 128m
+          memory: 384m
 
   elasticsearch:
     image: docker.elastic.co/elasticsearch/elasticsearch:8.17.0

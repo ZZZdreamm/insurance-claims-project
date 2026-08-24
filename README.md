@@ -10,18 +10,33 @@ all runnable on one laptop for free.
 ## The flow
 
 A policyholder uploads photos and a description of the damage. The system ingests the
-claim, runs automated triage (a small local vision model estimates severity), routes it
-through a BPMN process with SLA timers and a human adjuster review, then executes the
-payout as a distributed saga that compensates if any leg fails.
+claim; a Python service reacts to the event, runs MobileNet on the photos plus a text model
+and publishes a severity; the claim lands in an adjuster's review queue with an SLA; approval
+is a fact that the payout service reacts to — reserve funds, pay, and compensate if any step
+fails — and the claim ends up `PAID` (or `PAYOUT_FAILED`, retryable). There is no central
+orchestrator: every step is a service reacting to a published fact (event choreography).
 
-## Status: Phase 5 — observability, Helm, CI
+```
+ client ──POST claim+photos──▶ claim-service ──CLAIM_SUBMITTED──▶ assessment-service (MobileNet + text)
+                                    ▲                                        │
+                                    └────────── ASSESSMENT_COMPLETED ◀───────┘
+                              adjuster ──approve──▶ claim-service ──CLAIM_APPROVED──▶ payout-service
+                                    ▲                                        │  reserve → FUNDS_RESERVED
+                                    │                                        │  (self)  → PAYOUT_ISSUED | PAYOUT_FAILED+FUNDS_RELEASED
+                                    └── PAYOUT_ISSUED / PAYOUT_FAILED ◀──────┘
+                              claim-service: PAID, or PAYOUT_FAILED (retry-payout → CLAIM_APPROVED again)
+                              claim withdrawn after approval → PAYOUT_UNACCEPTED → payout-service reverses
+                              search-service projects every claims.event into Elasticsearch
+```
+
+## Status: all phases done; v2 = event choreography, MobileNet triage, retryable payouts, TS console, Pact
 
 | Phase | Scope | Status |
 |-------|-------|--------|
 | 1 | `claim-service`: claim aggregate, Postgres, REST + validation, Testcontainers, Compose | **done** |
 | 2 | Kafka + transactional outbox + Elasticsearch read projection (`search-service`) | **done** |
-| 3 | Embedded Camunda 7 process: automated triage, adjuster user task, SLA timer; Next.js console | **done** |
-| 4 | Payout saga with BPMN compensation, `payout-service` (idempotent consumer, DLQ replay), FastAPI `assessment-service` | **done** |
+| 3 | Review queue with SLA escalation, TypeScript Next.js console | **done** (originally Camunda 7; replaced by choreography) |
+| 4 | Choreographed payout saga with compensation, `payout-service` (idempotent, DLQ replay), `assessment-service` (Kafka + MobileNet), Pact contract | **done** |
 | 5 | Prometheus/Grafana/Loki/Tempo, trace context through outbox + Kafka headers, business metrics, Helm chart + kind script, Jenkinsfile, k6 | **done** |
 | 6 | Optional: drag-and-drop upload page, WebFlux document streaming | planned |
 
@@ -30,17 +45,14 @@ payout as a distributed saga that compensates if any leg fails.
 Requirements: Java 21, Maven 3.8+, Docker.
 
 ```bash
-# Postgres + Kafka + claim-service
+# Postgres + Kafka + claim-service + payout-service + assessment-service
 docker compose --profile core up -d --build
 
 # add Elasticsearch + search-service
 docker compose --profile core --profile search up -d --build
 
-# add the adjuster console (http://localhost:3000); Camunda Cockpit is at http://localhost:8080/camunda (demo/demo)
+# add the adjuster console (http://localhost:3000)
 docker compose --profile core --profile console up -d --build
-
-# add the Python triage service and point claim-service at it (otherwise the heuristic runs in-process)
-CLAIMS_ASSESSMENT_PROVIDER=http docker compose --profile core --profile ml up -d --build
 
 # add Prometheus + Grafana (http://localhost:3001) + Loki + Tempo; copy .env.example to .env first so
 # the services export traces and ship logs
@@ -75,8 +87,8 @@ Numbers are not quoted here on purpose: they depend on the laptop. Run it before
 (e.g. outbox batch size, Hikari pool size) and put the two `http_req_duration` summaries side by side.
 
 Approving a claim starts the payout saga. Two deterministic ways to make it fail, for demos:
-approve an amount ending in `.99` (payment provider rejects → reservation is released) or above
-`50000` (reservation rejected → nothing to compensate). Watch it in Cockpit, or:
+approve an amount ending in `.99` (payment provider rejects → reservation is released, claim
+`PAYOUT_FAILED`, retry from the console) or above `50000` (reservation rejected). Watch it:
 
 ```bash
 curl -s localhost:8080/api/v1/claims/$ID | jq '{status, approvedAmount, payoutFailureReason}'
@@ -91,30 +103,30 @@ docker compose --profile core up -d postgres kafka
 cd claim-service && SPRING_KAFKA_BOOTSTRAP_SERVERS=localhost:29092 mvn spring-boot:run -Dspring-boot.run.profiles=dev
 ```
 
-Submit a claim:
+Submit a claim (JSON, or multipart with photos):
 
 ```bash
 curl -s -X POST localhost:8080/api/v1/claims -H 'Content-Type: application/json' -d '{
-  "policyNumber": "POL-123",
-  "plateNumber": "WA 12345",
-  "incidentDate": "2026-08-20",
-  "description": "Rear-ended at a red light, bumper and tail light damaged",
-  "estimatedAmount": 2500.00
-}' | jq
+  "policyNumber": "POL-123", "plateNumber": "WA 12345", "incidentDate": "2026-08-20",
+  "description": "Rear-ended at a red light, bumper and tail light damaged", "estimatedAmount": 2500.00 }' | jq
+
+curl -s -X POST localhost:8080/api/v1/claims \
+  -F 'claim={"policyNumber":"POL-123","plateNumber":"WA 12345","incidentDate":"2026-08-20","description":"Front end crushed, airbags deployed","estimatedAmount":9000};type=application/json' \
+  -F photos=@front.jpg -F photos=@side.jpg | jq
 ```
 
-Submitting starts the `claim-handling` BPMN process: the job executor runs the automated
-assessment, then a review task appears for the `adjusters` group:
+assessment-service reacts to `CLAIM_SUBMITTED`, fetches the photos, runs MobileNet + the text model
+and publishes `ASSESSMENT_COMPLETED`; the claim then shows up in the review queue:
 
 ```bash
-curl -s localhost:8080/api/v1/tasks | jq                       # open reviews with claim summary, severity, due date
-curl -s -X POST localhost:8080/api/v1/tasks/$TASK/claim -H 'Content-Type: application/json' -d '{"assignee":"alice"}'
-curl -s -X POST localhost:8080/api/v1/tasks/$TASK/complete -H 'Content-Type: application/json' \
-     -d '{"decision":"APPROVE","approvedAmount":2000}'          # or {"decision":"REJECT","reason":"..."}
+curl -s localhost:8080/api/v1/reviews | jq                       # PENDING_REVIEW claims, severity, due date, photos
+curl -s -X POST localhost:8080/api/v1/reviews/$ID/claim -H 'Content-Type: application/json' -d '{"assignee":"alice"}'
+curl -s -X POST localhost:8080/api/v1/reviews/$ID/approve -H 'Content-Type: application/json' -d '{"approvedAmount":2000}'
+curl -s -X POST localhost:8080/api/v1/reviews/$ID/reject  -H 'Content-Type: application/json' -d '{"reason":"..."}'
+curl -s -X POST localhost:8080/api/v1/claims/$ID/retry-payout -H 'Content-Type: application/json' -d '{"approvedAmount":2001}'
 ```
 
-The same lifecycle is exposed directly (`POST /api/v1/claims/{id}/withdraw` etc.) for
-operational use; illegal transitions return `409` as RFC 9457 `application/problem+json`.
+Illegal transitions return `409` as RFC 9457 `application/problem+json`.
 Health and metrics: `/actuator/health`, `/actuator/prometheus`.
 
 Search the projection (fuzzy on plate, policy, claim number and description; optional status filter):
@@ -135,16 +147,16 @@ cd assessment-service && pip install -r requirements-dev.txt && python -m pytest
 ```
 
 Integration tests spin up real Postgres 16, Kafka (KRaft) and Elasticsearch 8 containers:
-Flyway migrations, sequence-backed claim numbering, JPA optimistic locking, the outbox relay
-(same-transaction write, rollback, per-claim ordering on one partition), the search
-projection (fuzzy search, stale-event rejection) and the BPMN process on the real engine with
-the job executor running (approve path, reject path, SLA timer fired by hand via
-`ManagementService.executeJob`) are exercised for real, not mocked. The saga is tested from both
-sides: claim-service ITs run the BPMN against a fake participant (happy path → `PAID`; payout
-failure → `RELEASE_FUNDS` sent, `PAYOUT_FAILED`; reservation rejected → no compensation), and
-payout-service ITs prove a redelivered command is handled once, a failed transfer is recorded and
-released, and a poison message lands on the DLT and can be replayed. The HTTP triage adapter is
-tested with MockWebServer (remote verdict, retry-then-fallback, timeout).
+Flyway migrations, sequence-backed claim numbering, JPA optimistic locking, multipart photo
+upload, the outbox relay (same-transaction write, rollback, per-claim ordering on one partition),
+the search projection (fuzzy search, stale-event rejection) and the whole choreography over the
+real broker with in-JVM fakes of the two downstream services (`ChoreographyIT`: happy path to
+`PAID`; `.99` → `PAYOUT_FAILED` → retry with corrected amount → `PAID`; reservation rejected;
+withdraw-after-approve → `PAYOUT_UNACCEPTED`; SLA escalation once per claim; triage timeout →
+heuristic fallback). payout-service ITs prove a redelivered event is handled once, a failed transfer
+is compensated and can be retried, an unaccepted payout is reversed, and a poison message lands on
+the DLT and can be replayed. A **Pact message contract** (`contracts/pacts`) is written by
+payout-service's consumer test and verified against claim-service's real serialiser.
 
 ## Design decisions
 
@@ -170,50 +182,29 @@ tested with MockWebServer (remote verdict, retry-then-fallback, timeout).
   rejected with a 409 and ignored. Poison messages retry with exponential backoff then land on
   `claims.events.DLT` instead of blocking the partition. This is CQRS: Postgres is the write model,
   Elasticsearch the read model, Kafka the bridge.
-- **The process engine orchestrates, the aggregate decides.** `claim-handling.bpmn`
-  (embedded Camunda 7, tables in the same Postgres) drives: start assessment → automated triage →
-  `Adjuster review` user task → approve/reject. Delegates are thin bridges to `ClaimService`; the
-  legal-transition rules stay in the `Claim` aggregate, so a mis-modelled process cannot corrupt a
-  claim. The process is started in the submit transaction — no claim without a process instance
-  and vice versa — and the first service task is `asyncBefore`, so the HTTP call returns as soon as
-  the claim is committed. The application layer sees only a `ClaimWorkflow` port.
-- **Non-interrupting SLA timer.** A 48h boundary timer on the review task escalates (flag +
-  log now, RabbitMQ notification in phase 5) without cancelling the task. Task due dates are
-  set from the same SLA so the console can show time remaining.
-- **Triage behind a port with a deterministic default.** `AssessmentProvider` has a heuristic
-  adapter (keywords + estimate → MINOR/MODERATE/SEVERE and a banded amount). Tests and the demo need
-  no model; phase 4 adds an HTTP adapter to the Python vision service behind a property switch.
-- **Saga orchestrated in BPMN with real compensation.** After approval, `Reserve funds` and
-  `Issue payout` are executed by `payout-service` over Kafka command/reply (`payout.commands` /
-  `payout.events`, keyed by claim id), then the claim is marked paid. Each remote leg is its own
-  sub-process with a compensation handler (`Release funds`, `Reverse payout`), so a handler is only
-  registered once its leg succeeded. A failed or timed-out leg triggers a compensation throw inside
-  the saga scope: completed legs are undone in reverse order, then the claim becomes
-  `PAYOUT_FAILED` with the reason. Replies are correlated on business key **and** the pending
-  command id, so a late reply from a previous leg cannot be mistaken for the current one.
-- **Commands and replies also go through the outbox.** Same table, different topic. Compensation
-  commands are fire-and-forget at-least-once; the participant applies them idempotently.
-- **The participant can be killed mid-processing and never double-pays.** `payout-service` handles
-  each command in one local transaction: `processed_message` row (PK = command id) + ledger change +
-  outbox reply. Kafka gives at-least-once; the primary key turns it into effectively-once. Poison
-  messages retry with backoff, then park on `payout.commands.DLT`; `POST /api/v1/dlq/replay`
-  re-drives them after the fix.
-- **Triage service is honest about being small.** `assessment-service` is a FastAPI service with a
-  weighted-keyword model plus an amount prior — deterministic, versioned (`modelVersion`), ~50 MB
-  container. It sits behind the same `/assess` contract a vision model would. claim-service calls
-  it with WebClient (3 s timeout, 2 retries) and degrades to the in-process heuristic, recording
-  `heuristic-fallback` as the provider so the degradation is visible.
-- **One claim = one trace, across the broker.** Micrometer Tracing (OTel bridge) with W3C
-  propagation on HTTP and Kafka. The gap is the outbox: the request trace ends at commit and the
-  relay runs later on a scheduler thread. `OutboxWriter` stores the `traceparent` in the row and
-  `OutboxPublisher` re-activates it around the send, so consumers join the originating trace
-  (`TracePropagationIT` asserts the Kafka header carries the submit's trace id). The Camunda job
-  executor is the one hop that starts a fresh trace; business key + claim id in logs bridge it.
-- **Metrics that mean something.** `claims_submitted_total`, `claims_transitions_total{to}`,
-  `outbox_pending`, `outbox_published_total`, `assessment_requests_total{severity}` next to the
-  usual HTTP/Kafka/JVM metrics; the dashboard is provisioned, not clicked together.
-- **Logs to Loki, not Elasticsearch.** loki4j appender behind `LOKI_URL`, low-cardinality labels
-  (`app`, `level`), trace id in the line for the log↔trace jump. No Kibana.
+- **Choreography, not orchestration.** No process engine: each service reacts to facts on Kafka
+  (`claims.events`, `assessment.events`, `payout.events`, all keyed by claim id). The claim
+  aggregate still owns the legal transitions, so a mis-sequenced event cannot corrupt a claim —
+  late or duplicate results are ignored explicitly (`processed_message` inbox + status checks).
+  Time-based behaviour a BPMN engine used to own is a small scheduler: review-SLA escalation
+  (a non-blocking fact, once per claim) and a triage timeout that applies the in-process heuristic
+  when assessment-service does not answer. The trade-off is visibility: there is no diagram of "where
+  the claim is"; the answer is the claim's status plus the event log in Elasticsearch/Kafka.
+- **Saga as a chain of reactions with compensation.** `CLAIM_APPROVED` → payout-service reserves
+  funds (`FUNDS_RESERVED`) → payout-service reacts to its *own* fact and transfers (`PAYOUT_ISSUED`, or
+  `PAYOUT_FAILED` + `FUNDS_RELEASED` as local compensation) → claim-service marks `PAID`. If the
+  claim can no longer take the money (withdrawn after approval) it publishes `PAYOUT_UNACCEPTED` and
+  payout-service reverses — cross-service compensation without an orchestrator. `PAYOUT_FAILED` is
+  retryable: `retry-payout` moves the claim back to `APPROVED` and republishes the fact.
+- **Consumer-driven contract.** payout-service pins only the fields it reads from `CLAIM_APPROVED`
+  in a Pact message contract; claim-service's build verifies its serialiser against it. Consumers
+  keep their own copies of the envelope and ignore unknown fields — no shared library.
+- **Triage that is honest about its model.** assessment-service runs ImageNet MobileNetV2 (ONNX
+  Runtime, CPU, ~14 MB) on the photos and reads the head zero-shot: probability mass on *wreck*
+  versus intact-vehicle classes is the image damage signal, combined with a weighted-keyword text
+  model and the estimate. Deterministic and versioned; the explanation is in the event. There is no
+  free labelled car-damage dataset shipped here, so the network is not fine-tuned — a trained head is
+  a change to `vision.py` only. If the service is down, claims still progress via the fallback.
 - **No shared event library.** Each consumer owns its view of the contract and ignores unknown
   fields, so the producer can add fields without a lock-step deploy. A Pact contract test will
   guard the shape in a later phase.
@@ -224,13 +215,11 @@ tested with MockWebServer (remote verdict, retry-then-fallback, timeout).
 ## What I deliberately left out, and why
 
 - **MongoDB** — Postgres `jsonb` stores model-extraction output fine; a second datastore was not justified.
-- **Camunda 8** — Zeebe + Operate + Tasklist + its own Elasticsearch is 4–6 GB. Camunda 7 embedded
-  in the service reuses the existing Postgres at near-zero cost and still gives BPMN, human tasks,
-  timers and compensation events. For production I would pick C8 for horizontal scalability of the engine.
-- **Paid LLM APIs and heavyweight ML runtimes** — severity estimation is a small deterministic model
-  in `assessment-service` behind an `AssessmentProvider` port with an in-process heuristic fallback,
-  so the demo works with no model download and tests stay deterministic. A torch/ONNX vision model
-  would be a drop-in behind the same `/assess` contract.
+- **Paid LLM APIs and heavyweight ML runtimes** — triage is ImageNet MobileNetV2 on ONNX Runtime
+  (no torch, ~15 ms per image on CPU) plus a text model; deterministic, so tests stay deterministic.
+- **A process engine (Camunda)** — the first version used embedded Camunda 7 for the review task and
+  the saga; it was replaced by event choreography to remove the orchestrator as a single point of
+  coupling. Camunda remains the right answer when business users must own the process diagram.
 - **Kibana** — duplicates Grafana; Loki gives trace-id-to-logs at a fraction of the memory.
 - **Spring Cloud Eureka / Config Server** — Kubernetes already does discovery and config.
 - **A running Jenkins** — the `Jenkinsfile` is committed; GitHub Actions is the CI that actually runs.
@@ -245,19 +234,17 @@ claim-service/          Spring Boot 3 / Java 21 — the claim aggregate
     api/                REST controller, DTOs, ProblemDetail error mapping
     infrastructure/     Postgres-backed adapters
     infrastructure/outbox/  outbox entity, SKIP LOCKED batch query, Kafka relay
-    infrastructure/camunda/ ClaimWorkflow adapter, service-task delegates, task listener
-    infrastructure/assessment/  heuristic AssessmentProvider
-    application/workflow/   ClaimWorkflow port, ReviewTask, ReviewDecision
-  src/main/resources/processes/claim-handling.bpmn
-  src/main/resources/db/migration/   Flyway migrations (V1 claim, V2 outbox); Camunda manages its own tables
-    infrastructure/payout/  outbox-backed command sender, Kafka reply listener
-    application/payout/     PayoutCommand / PayoutReply contract (this service's copy)
+    infrastructure/consumers/  Kafka reactions to assessment.events / payout.events (idempotent)
+    infrastructure/assessment/ heuristic fallback AssessmentProvider
+    application/            ClaimService (use cases), ClaimScheduler (SLA escalation, triage timeout), IdempotentConsumer
+  src/main/resources/db/migration/   Flyway migrations (V1 claim … V5 choreography: review/triage columns, photos, inbox)
 payout-service/         Spring Boot 3 — saga participant: ledger, stub payment gateway, idempotent consumer, DLQ replay
-  application/          PayoutCommandHandler (one transaction per command), contract records
+  application/          PayoutSaga (one transaction per reaction), own copies of the event envelopes
   domain/               FundReservation, Payout, ProcessedMessage, PaymentGateway port
   infrastructure/       outbox (deliberate copy of claim-service's), Kafka listener + DLT, stub gateway
-assessment-service/     FastAPI — POST /assess: weighted-keyword severity model, versioned; pytest
-adjuster-console/       Next.js 14 (App Router, plain JS) — task list, claim/unclaim, approve/reject, demo submit
+assessment-service/     FastAPI + Kafka consumer — MobileNetV2 (ONNX) + text model; POST /assess for ad-hoc use; pytest
+contracts/pacts/        Pact message contract payout-service ⇄ claim-service (consumer-written, provider-verified)
+adjuster-console/       Next.js 14 + TypeScript — review queue with photos, claim/unclaim, approve/reject, failed-payout retry, demo submit with photos
 infra/postgres/         init script creating one database per service
 infra/observability/    Prometheus scrape config, Loki/Tempo configs, Grafana datasources + dashboard
 deploy/helm/            claims-platform chart (services, dev infra, observability); deploy/kind/up.sh
@@ -268,6 +255,6 @@ search-service/         Spring Boot 3 — Kafka consumer -> Elasticsearch projec
   api/                  GET /api/v1/search (fuzzy multi_match, status filter, paging)
   config/               DLT error handler, index mapping bootstrap, JSON mapper
 pom.xml                 aggregator only — each service keeps its own Boot parent
-docker-compose.yml      profiles: core, search, console, ml, observability; .env.example toggles trace/log export
+docker-compose.yml      profiles: core (Postgres, Kafka, claim/payout/assessment), search, console, observability
 .github/workflows/      CI: mvn verify with Testcontainers
 ```
