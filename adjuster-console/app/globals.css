@@ -11,3 +11,7 @@ input, button { font: inherit; padding: 0.3rem 0.5rem; }
 button { cursor: pointer; }
 .error { color: #c62828; margin: 0.5rem 0; }
 .muted { opacity: 0.7; }
+h2 { font-size: 1.1rem; margin: 1.5rem 0 0.5rem; }
+.small { font-size: 0.75rem; }
+.photos { display: flex; gap: 0.3rem; margin-top: 0.3rem; }
+.photos img { height: 48px; width: 64px; object-fit: cover; border-radius: 4px; border: 1px solid #8884; }
