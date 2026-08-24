@@ -17,10 +17,12 @@ public class ClaimEventsListener {
     private static final Logger log = LoggerFactory.getLogger(ClaimEventsListener.class);
 
     private final ClaimIndexer indexer;
+    private final ClaimEventLogIndexer eventLog;
     private final ObjectMapper json;
 
-    public ClaimEventsListener(ClaimIndexer indexer, ObjectMapper json) {
+    public ClaimEventsListener(ClaimIndexer indexer, ClaimEventLogIndexer eventLog, ObjectMapper json) {
         this.indexer = indexer;
+        this.eventLog = eventLog;
         this.json = json;
     }
 
@@ -29,6 +31,7 @@ public class ClaimEventsListener {
         try {
             ClaimEventEnvelope event = json.readValue(record.value(), ClaimEventEnvelope.class);
             long sequence = sequenceOf(record);
+            eventLog.append(event, sequence, json.readTree(record.value()));   // idempotent by event id
             boolean written = indexer.index(ClaimDocument.from(event), sequence);
             log.debug("{} seq={} claim={} written={}", event.eventType(), sequence, event.claimId(), written);
         } catch (RuntimeException | IOException e) {

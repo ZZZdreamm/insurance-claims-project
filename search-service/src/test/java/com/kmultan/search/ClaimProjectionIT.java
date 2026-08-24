@@ -52,6 +52,7 @@ class ClaimProjectionIT {
     @Autowired KafkaTemplate<String, String> kafka;
     @Autowired ClaimSearchService search;
     @Autowired MockMvc mvc;
+    @Autowired co.elastic.clients.elasticsearch.ElasticsearchClient es;
 
     private static String event(UUID claimId, String type, String status, String plate, String description) {
         return """
@@ -87,6 +88,11 @@ class ClaimProjectionIT {
         publish(id, 10, event(id, "CLAIM_SUBMITTED", "SUBMITTED", "WA12345", "Rear bumper dented in a parking lot"));
         Thread.sleep(1500);
         assertThat(search.search(null, "UNDER_ASSESSMENT", 0, 10).items()).anyMatch(d -> d.claimId().equals(id));
+
+        // the event log keeps every distinct fact (3 event ids were published); the projection kept only the newest state
+        es.indices().refresh(r -> r.index("claim-events"));
+        long logged = es.count(c -> c.index("claim-events").query(q -> q.term(t -> t.field("claimId").value(id.toString())))).count();
+        assertThat(logged).isEqualTo(3);
 
         mvc.perform(get("/api/v1/search").param("q", "parking").param("status", "UNDER_ASSESSMENT"))
                 .andExpect(status().isOk())

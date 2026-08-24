@@ -26,7 +26,8 @@ spring:
 
 search:
   topic: claims.events
-  index: claims
+  index: claims              # current state per claim (search API)
+  event-log-index: claim-events   # append-only fact log (Kibana)
 
 logging:
   loki:
