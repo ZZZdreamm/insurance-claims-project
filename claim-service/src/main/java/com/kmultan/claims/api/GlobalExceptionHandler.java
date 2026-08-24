@@ -1,6 +1,5 @@
 package com.kmultan.claims.api;
 
-import com.kmultan.claims.application.workflow.ReviewTaskNotFoundException;
 import com.kmultan.claims.domain.ClaimNotFoundException;
 import com.kmultan.claims.domain.InvalidStateTransitionException;
 import org.springframework.http.HttpStatus;
@@ -21,9 +20,9 @@ public class GlobalExceptionHandler {
         return problem(HttpStatus.NOT_FOUND, "Claim not found", e.getMessage());
     }
 
-    @ExceptionHandler(ReviewTaskNotFoundException.class)
-    ProblemDetail taskNotFound(ReviewTaskNotFoundException e) {
-        return problem(HttpStatus.NOT_FOUND, "Review task not found", e.getMessage());
+    @ExceptionHandler(IllegalStateException.class)
+    ProblemDetail conflict(IllegalStateException e) {
+        return problem(HttpStatus.CONFLICT, "Conflict", e.getMessage());
     }
 
     @ExceptionHandler(InvalidStateTransitionException.class)
