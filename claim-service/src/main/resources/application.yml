@@ -1,0 +1,119 @@
+spring:
+  application:
+    name: claim-service
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/claims}
+    username: ${SPRING_DATASOURCE_USERNAME:claims}
+    password: ${SPRING_DATASOURCE_PASSWORD:claims}
+    hikari:
+      maximum-pool-size: 5
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate   # Flyway owns the schema; Hibernate only checks it matches
+    properties:
+      hibernate.jdbc.time_zone: UTC
+  flyway:
+    enabled: true
+  kafka:
+    template:
+      observation-enabled: true
+    bootstrap-servers: ${SPRING_KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      acks: all
+      properties:
+        enable.idempotence: true
+        max.in.flight.requests.per.connection: 5
+    consumer:
+      group-id: claim-service
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      enable-auto-commit: false
+    listener:
+      ack-mode: record
+      observation-enabled: true
+
+camunda:
+  bpm:
+    admin-user:
+      id: demo
+      password: demo
+      first-name: Demo
+    filter:
+      create: All tasks
+    database:
+      schema-update: true      # engine tables are managed by Camunda, application tables by Flyway
+    history-level: activity
+    job-execution:
+      enabled: true
+      deployment-aware: false
+    default-serialization-format: application/json
+    webapp:
+      application-path: /camunda
+      index-redirect-enabled: false
+    authorization:
+      enabled: false
+
+claims:
+  process:
+    sla-duration: PT48H        # adjuster review SLA; ISO-8601 duration
+    payout-timeout: PT10M      # max wait for a payout-service reply per saga leg
+  payout:
+    commands-topic: payout.commands
+    replies-topic: payout.events
+  assessment:
+    provider: ${CLAIMS_ASSESSMENT_PROVIDER:heuristic}   # heuristic | http
+    http:
+      url: ${CLAIMS_ASSESSMENT_URL:http://localhost:8000}
+      timeout: 3s
+  cors:
+    allowed-origins: http://localhost:3000
+  kafka:
+    topic: claims.events
+    partitions: 3
+  outbox:
+    poll-interval-ms: 1000
+    batch-size: 100
+
+logging:
+  loki:
+    url: ${LOKI_URL:}            # empty = console only
+
+server:
+  port: 8080
+  error:
+    include-message: always
+
+management:
+  tracing:
+    sampling:
+      probability: 1.0            # demo: trace everything; production would sample
+  otlp:
+    tracing:
+      endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://localhost:4318}/v1/traces
+      export:
+        enabled: ${TRACING_ENABLED:false}
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+
+---
+spring:
+  config:
+    activate:
+      on-profile: dev
+  main:
+    lazy-initialization: true
+  jpa:
+    show-sql: true
+logging:
+  level:
+    com.kmultan.claims: DEBUG
