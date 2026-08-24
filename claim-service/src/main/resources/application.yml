@@ -1,6 +1,10 @@
 spring:
   application:
     name: claim-service
+  data:
+    redis:
+      host: ${SPRING_DATA_REDIS_HOST:localhost}
+      port: ${SPRING_DATA_REDIS_PORT:6379}
   servlet:
     multipart:
       max-file-size: 8MB
@@ -51,6 +55,10 @@ claims:
     timeout: PT2M                 # no ASSESSMENT_COMPLETED within this -> in-process heuristic fallback
   scheduler:
     interval-ms: 15000
+  idempotency:
+    ttl: PT24H                    # how long an Idempotency-Key maps to the claim it created
+  ratelimit:
+    submit-per-minute: 30         # per client (X-Client-Id header, else remote address) on POST /api/v1/claims
   cors:
     allowed-origins: http://localhost:3000
   kafka:

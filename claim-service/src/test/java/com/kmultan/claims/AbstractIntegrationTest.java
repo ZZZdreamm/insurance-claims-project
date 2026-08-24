@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Tag;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.context.annotation.Import;
+import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.kafka.KafkaContainer;
 
@@ -24,8 +25,12 @@ public abstract class AbstractIntegrationTest {
     @ServiceConnection
     protected static final KafkaContainer KAFKA = new KafkaContainer("apache/kafka-native:3.8.0");
 
+    @ServiceConnection(name = "redis")
+    protected static final GenericContainer<?> REDIS = new GenericContainer<>("redis:7-alpine").withExposedPorts(6379);
+
     static {
         POSTGRES.start();
         KAFKA.start();
+        REDIS.start();
     }
 }
