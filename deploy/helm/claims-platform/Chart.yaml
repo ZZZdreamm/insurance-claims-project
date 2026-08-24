@@ -1,0 +1,6 @@
+apiVersion: v2
+name: claims-platform
+description: Motor insurance claims platform — services plus single-node dev infrastructure for kind
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
