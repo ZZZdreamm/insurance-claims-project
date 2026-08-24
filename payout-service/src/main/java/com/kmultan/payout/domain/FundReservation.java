@@ -21,6 +21,7 @@ public class FundReservation {
     @Enumerated(EnumType.STRING) @Column(nullable = false) private Status status;
     @Column(name = "created_at", nullable = false) private Instant createdAt = Instant.now();
     @Column(name = "updated_at", nullable = false) private Instant updatedAt = Instant.now();
+    @Column(name = "causation_event_id") private UUID causationEventId;
 
     protected FundReservation() {}
 
@@ -28,6 +29,13 @@ public class FundReservation {
         this.claimId = claimId;
         this.amount = amount;
         this.status = Status.RESERVED;
+    }
+
+    public void reserve(BigDecimal amount, UUID causationEventId) {
+        this.amount = amount;
+        this.status = Status.RESERVED;
+        this.causationEventId = causationEventId;
+        this.updatedAt = Instant.now();
     }
 
     public void release() { status = Status.RELEASED; updatedAt = Instant.now(); }

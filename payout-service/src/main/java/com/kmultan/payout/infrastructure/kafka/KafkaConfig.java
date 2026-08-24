@@ -16,17 +16,17 @@ import org.springframework.util.backoff.ExponentialBackOff;
 public class KafkaConfig {
 
     @Bean
-    NewTopic commandsTopic(@Value("${payout.commands-topic}") String topic) {
+    NewTopic payoutEventsTopic(@Value("${payout.events-topic}") String topic) {
         return TopicBuilder.name(topic).partitions(3).replicas(1).build();
     }
 
     @Bean
-    NewTopic repliesTopic(@Value("${payout.replies-topic}") String topic) {
-        return TopicBuilder.name(topic).partitions(3).replicas(1).build();
+    NewTopic claimsEventsDlt(@Value("${payout.claims-topic}") String topic) {
+        return TopicBuilder.name(topic + ".DLT").partitions(3).replicas(1).build();
     }
 
     @Bean
-    NewTopic commandsDlt(@Value("${payout.commands-topic}") String topic) {
+    NewTopic payoutEventsDlt(@Value("${payout.events-topic}") String topic) {
         return TopicBuilder.name(topic + ".DLT").partitions(3).replicas(1).build();
     }
 

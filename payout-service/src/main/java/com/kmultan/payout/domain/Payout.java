@@ -14,7 +14,7 @@ import java.util.UUID;
 @Entity
 @Table(name = "payout")
 public class Payout {
-    public enum Status { ISSUED, REVERSED, FAILED }
+    public enum Status { PENDING, ISSUED, REVERSED, FAILED }
 
     @Id @Column(name = "claim_id") private UUID claimId;
     @Column(nullable = false) private BigDecimal amount;
@@ -23,15 +23,22 @@ public class Payout {
     private String reason;
     @Column(name = "created_at", nullable = false) private Instant createdAt = Instant.now();
     @Column(name = "updated_at", nullable = false) private Instant updatedAt = Instant.now();
+    @Column(name = "causation_event_id") private UUID causationEventId;
 
     protected Payout() {}
 
-    public static Payout issued(UUID claimId, BigDecimal amount, String reference) {
-        Payout p = new Payout(); p.claimId = claimId; p.amount = amount; p.reference = reference; p.status = Status.ISSUED; return p;
+    public static Payout pending(UUID claimId) {
+        Payout p = new Payout(); p.claimId = claimId; p.amount = BigDecimal.ZERO; p.status = Status.PENDING; return p;
     }
 
-    public static Payout failed(UUID claimId, BigDecimal amount, String reason) {
-        Payout p = new Payout(); p.claimId = claimId; p.amount = amount; p.reason = reason; p.status = Status.FAILED; return p;
+    public void issued(BigDecimal amount, String reference, UUID causationEventId) {
+        this.amount = amount; this.reference = reference; this.reason = null; this.status = Status.ISSUED;
+        this.causationEventId = causationEventId; this.updatedAt = Instant.now();
+    }
+
+    public void failed(BigDecimal amount, String reason, UUID causationEventId) {
+        this.amount = amount; this.reason = reason; this.status = Status.FAILED;
+        this.causationEventId = causationEventId; this.updatedAt = Instant.now();
     }
 
     public void reverse() { status = Status.REVERSED; updatedAt = Instant.now(); }

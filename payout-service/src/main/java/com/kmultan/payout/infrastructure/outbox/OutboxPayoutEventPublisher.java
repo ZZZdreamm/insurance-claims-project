@@ -10,7 +10,7 @@ public class OutboxPayoutEventPublisher implements PayoutEventPublisher {
     private final OutboxWriter outbox;
     private final String topic;
 
-    public OutboxPayoutEventPublisher(OutboxWriter outbox, @Value("${payout.replies-topic}") String topic) {
+    public OutboxPayoutEventPublisher(OutboxWriter outbox, @Value("${payout.events-topic}") String topic) {
         this.outbox = outbox;
         this.topic = topic;
     }

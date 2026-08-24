@@ -115,6 +115,12 @@
       <artifactId>awaitility</artifactId>
       <scope>test</scope>
     </dependency>
+    <dependency>
+      <groupId>au.com.dius.pact.consumer</groupId>
+      <artifactId>junit5</artifactId>
+      <version>4.6.17</version>
+      <scope>test</scope>
+    </dependency>
   </dependencies>
 
   <build>
@@ -133,6 +139,10 @@
             <include>**/*IT.java</include>
           </includes>
           <excludedGroups>${skipITs.groups}</excludedGroups>
+          <systemPropertyVariables>
+            <!-- consumer contracts are committed next to the code so the provider can verify them -->
+            <pact.rootDir>${project.basedir}/../contracts/pacts</pact.rootDir>
+          </systemPropertyVariables>
         </configuration>
       </plugin>
     </plugins>

@@ -10,6 +10,7 @@ import org.springframework.kafka.core.ConsumerFactory;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.time.Duration;
@@ -17,9 +18,10 @@ import java.util.List;
 import java.util.UUID;
 
 /**
- * Operational endpoint: replay dead-lettered commands back onto the commands
- * topic after the underlying problem has been fixed. Safe to call repeatedly:
- * commands are idempotent, and the replay consumer group commits its offsets.
+ * Operational endpoint: replay dead-lettered events from {@code <topic>.DLT}
+ * back onto {@code <topic>} after the underlying problem has been fixed. Safe
+ * to call repeatedly: handlers are idempotent, and the replay consumer group
+ * commits its offsets.
  */
 @RestController
 @RequestMapping("/api/v1/dlq")
@@ -27,19 +29,21 @@ public class DeadLetterController {
 
     private final ConsumerFactory<String, String> consumers;
     private final KafkaTemplate<String, String> kafka;
-    private final String commandsTopic;
+    private final String claimsTopic;
 
     public DeadLetterController(ConsumerFactory<String, String> consumers, KafkaTemplate<String, String> kafka,
-                                @Value("${payout.commands-topic}") String commandsTopic) {
+                                @Value("${payout.claims-topic}") String claimsTopic) {
         this.consumers = consumers;
         this.kafka = kafka;
-        this.commandsTopic = commandsTopic;
+        this.claimsTopic = claimsTopic;
     }
 
-    public record ReplayResult(int replayed) {}
+    public record ReplayResult(String topic, int replayed) {}
 
+    /** @param topic source topic whose DLT should be drained (default: the claims events topic) */
     @PostMapping("/replay")
-    public ReplayResult replay() throws Exception {
+    public ReplayResult replay(@RequestParam(required = false) String topic) throws Exception {
+        String commandsTopic = topic == null ? claimsTopic : topic;
         String dlt = commandsTopic + ".DLT";
         int replayed = 0;
         try (Consumer<String, String> consumer = consumers.createConsumer("payout-dlq-replay", "replay-" + UUID.randomUUID())) {
@@ -58,6 +62,6 @@ public class DeadLetterController {
                 consumer.commitSync();
             }
         }
-        return new ReplayResult(replayed);
+        return new ReplayResult(commandsTopic, replayed);
     }
 }

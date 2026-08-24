@@ -36,8 +36,8 @@ spring:
       observation-enabled: true
 
 payout:
-  commands-topic: payout.commands
-  replies-topic: payout.events
+  claims-topic: claims.events      # consumed: CLAIM_APPROVED, PAYOUT_UNACCEPTED
+  events-topic: payout.events      # produced (and self-consumed for step 2)
   reserve-limit: 50000
 
 claims:
