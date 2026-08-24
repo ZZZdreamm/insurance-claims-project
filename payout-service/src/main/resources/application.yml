@@ -1,0 +1,71 @@
+spring:
+  application:
+    name: payout-service
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/payout}
+    username: ${SPRING_DATASOURCE_USERNAME:claims}
+    password: ${SPRING_DATASOURCE_PASSWORD:claims}
+    hikari:
+      maximum-pool-size: 5
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate.jdbc.time_zone: UTC
+  flyway:
+    enabled: true
+  kafka:
+    template:
+      observation-enabled: true
+    bootstrap-servers: ${SPRING_KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      acks: all
+      properties:
+        enable.idempotence: true
+    consumer:
+      group-id: payout-service
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      enable-auto-commit: false
+    listener:
+      ack-mode: record
+      observation-enabled: true
+
+payout:
+  commands-topic: payout.commands
+  replies-topic: payout.events
+  reserve-limit: 50000
+
+claims:
+  outbox:
+    poll-interval-ms: 1000
+    batch-size: 100
+
+logging:
+  loki:
+    url: ${LOKI_URL:}            # empty = console only
+
+server:
+  port: 8082
+
+management:
+  tracing:
+    sampling:
+      probability: 1.0            # demo: trace everything; production would sample
+  otlp:
+    tracing:
+      endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://localhost:4318}/v1/traces
+      export:
+        enabled: ${TRACING_ENABLED:false}
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
