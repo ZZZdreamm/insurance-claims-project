@@ -1,0 +1,258 @@
+# Compose profiles keep the footprint small. Nobody has to run everything.
+#   docker compose --profile core up -d --build                    # Postgres + Kafka + claim-service
+#   docker compose --profile core --profile search up -d --build   # + Elasticsearch + search-service
+#   docker compose --profile core --profile console up -d --build  # + adjuster console on :3000
+#   CLAIMS_ASSESSMENT_PROVIDER=http docker compose --profile core --profile ml up -d --build   # + Python triage
+#   docker compose --profile core --profile observability up -d --build  # + Prometheus/Grafana/Loki/Tempo (Grafana :3001)
+# Set TRACING_ENABLED=true (see .env.example) so the services export traces when the observability profile is up.
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: claims-postgres
+    profiles: ["core"]
+    environment:
+      POSTGRES_DB: claims
+      POSTGRES_USER: claims
+      POSTGRES_PASSWORD: claims
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./infra/postgres/init-databases.sh:/docker-entrypoint-initdb.d/10-databases.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U claims -d claims"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    deploy:
+      resources:
+        limits:
+          memory: 256m
+
+  kafka:
+    image: apache/kafka-native:3.8.0   # KRaft, no ZooKeeper, GraalVM native: ~100 MB RSS
+    container_name: claims-kafka
+    profiles: ["core"]
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093,EXTERNAL://:29092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,EXTERNAL://localhost:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT,EXTERNAL:PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_LOG_RETENTION_HOURS: 168
+    ports:
+      - "29092:29092"   # from the host use localhost:29092
+    volumes:
+      - kafka-data:/tmp/kraft-combined-logs
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+
+  claim-service:
+    build: ./claim-service
+    container_name: claim-service
+    profiles: ["core"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_started
+    environment:
+      LOKI_URL: ${LOKI_URL:-}
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://tempo:4318
+      TRACING_ENABLED: ${TRACING_ENABLED:-false}
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/claims
+      SPRING_DATASOURCE_USERNAME: claims
+      SPRING_DATASOURCE_PASSWORD: claims
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      CLAIMS_ASSESSMENT_PROVIDER: ${CLAIMS_ASSESSMENT_PROVIDER:-heuristic}   # http when the ml profile is up
+      CLAIMS_ASSESSMENT_URL: http://assessment-service:8000
+      JAVA_TOOL_OPTIONS: "-XX:TieredStopAtLevel=1 -XX:+UseSerialGC -Xmx256m"
+    ports:
+      - "8080:8080"
+    deploy:
+      resources:
+        limits:
+          memory: 384m
+
+  payout-service:
+    build: ./payout-service
+    container_name: payout-service
+    profiles: ["core"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_started
+    environment:
+      LOKI_URL: ${LOKI_URL:-}
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://tempo:4318
+      TRACING_ENABLED: ${TRACING_ENABLED:-false}
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/payout
+      SPRING_DATASOURCE_USERNAME: claims
+      SPRING_DATASOURCE_PASSWORD: claims
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      JAVA_TOOL_OPTIONS: "-XX:TieredStopAtLevel=1 -XX:+UseSerialGC -Xmx256m"
+    ports:
+      - "8082:8082"
+    deploy:
+      resources:
+        limits:
+          memory: 384m
+
+  assessment-service:
+    build: ./assessment-service
+    container_name: assessment-service
+    profiles: ["ml"]
+    environment:
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${ASSESSMENT_OTEL_ENDPOINT:-}
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request;urllib.request.urlopen('http://localhost:8000/health')\""]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 128m
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.17.0
+    container_name: claims-elasticsearch
+    profiles: ["search"]
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "false"
+      ES_JAVA_OPTS: "-Xms512m -Xmx512m"
+    ports:
+      - "9200:9200"
+    volumes:
+      - es-data:/usr/share/elasticsearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:9200/_cluster/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+    deploy:
+      resources:
+        limits:
+          memory: 1g
+
+  search-service:
+    build: ./search-service
+    container_name: search-service
+    profiles: ["search"]
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+      kafka:
+        condition: service_started
+    environment:
+      LOKI_URL: ${LOKI_URL:-}
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://tempo:4318
+      TRACING_ENABLED: ${TRACING_ENABLED:-false}
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      SPRING_ELASTICSEARCH_URIS: http://elasticsearch:9200
+      JAVA_TOOL_OPTIONS: "-XX:TieredStopAtLevel=1 -XX:+UseSerialGC -Xmx256m"
+    ports:
+      - "8081:8081"
+    deploy:
+      resources:
+        limits:
+          memory: 384m
+
+  adjuster-console:
+    build: ./adjuster-console
+    container_name: adjuster-console
+    profiles: ["console"]
+    environment:
+      # the browser calls claim-service directly, so this must be reachable from the host
+      NEXT_PUBLIC_CLAIM_API: http://localhost:8080
+    ports:
+      - "3000:3000"
+    deploy:
+      resources:
+        limits:
+          memory: 128m
+
+  prometheus:
+    image: prom/prometheus:v3.1.0
+    container_name: claims-prometheus
+    profiles: ["observability"]
+    command: ["--config.file=/etc/prometheus/prometheus.yml", "--storage.tsdb.retention.time=3d"]
+    volumes:
+      - ./infra/observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "9090:9090"
+    deploy:
+      resources:
+        limits:
+          memory: 256m
+
+  loki:
+    image: grafana/loki:3.3.2
+    container_name: claims-loki
+    profiles: ["observability"]
+    command: ["-config.file=/etc/loki/loki.yml"]
+    volumes:
+      - ./infra/observability/loki.yml:/etc/loki/loki.yml:ro
+      - loki-data:/loki
+    ports:
+      - "3100:3100"
+    deploy:
+      resources:
+        limits:
+          memory: 256m
+
+  tempo:
+    image: grafana/tempo:2.7.0
+    container_name: claims-tempo
+    profiles: ["observability"]
+    command: ["-config.file=/etc/tempo/tempo.yml"]
+    volumes:
+      - ./infra/observability/tempo.yml:/etc/tempo/tempo.yml:ro
+      - tempo-data:/var/tempo
+    ports:
+      - "4318:4318"
+    deploy:
+      resources:
+        limits:
+          memory: 256m
+
+  grafana:
+    image: grafana/grafana:11.4.0
+    container_name: claims-grafana
+    profiles: ["observability"]
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+    volumes:
+      - ./infra/observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./infra/observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports:
+      - "3001:3000"
+    depends_on: [prometheus, loki, tempo]
+    deploy:
+      resources:
+        limits:
+          memory: 192m
+
+volumes:
+  postgres-data:
+  prometheus-data:
+  loki-data:
+  tempo-data:
+  kafka-data:
+  es-data:
