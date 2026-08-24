@@ -121,3 +121,56 @@ metadata: { name: elasticsearch }
 spec:
   selector: { app.kubernetes.io/name: elasticsearch }
   ports: [{ port: 9200 }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis
+spec:
+  replicas: 1
+  selector: { matchLabels: { app.kubernetes.io/name: redis } }
+  template:
+    metadata: { labels: { app.kubernetes.io/name: redis } }
+    spec:
+      containers:
+        - name: redis
+          image: {{ .Values.infra.redis.image }}
+          args: ["redis-server", "--save", "", "--appendonly", "no", "--maxmemory", "64mb", "--maxmemory-policy", "allkeys-lru"]
+          ports: [{ containerPort: 6379 }]
+          resources: { limits: { memory: 96Mi } }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: redis }
+spec:
+  selector: { app.kubernetes.io/name: redis }
+  ports: [{ port: 6379 }]
+{{- if .Values.infra.kibana.enabled }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kibana
+spec:
+  replicas: 1
+  selector: { matchLabels: { app.kubernetes.io/name: kibana } }
+  template:
+    metadata: { labels: { app.kubernetes.io/name: kibana } }
+    spec:
+      containers:
+        - name: kibana
+          image: {{ .Values.infra.kibana.image }}
+          env:
+            - { name: ELASTICSEARCH_HOSTS, value: http://elasticsearch:9200 }
+            - { name: NODE_OPTIONS, value: "--max-old-space-size=512" }
+            - { name: TELEMETRY_ENABLED, value: "false" }
+          ports: [{ containerPort: 5601 }]
+          resources: { limits: { memory: 768Mi } }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: kibana }
+spec:
+  selector: { app.kubernetes.io/name: kibana }
+  ports: [{ port: 5601 }]
+{{- end }}

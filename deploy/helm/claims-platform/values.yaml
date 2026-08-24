@@ -10,6 +10,7 @@ services:
     env:
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/claims
       SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      SPRING_DATA_REDIS_HOST: redis
       OTEL_EXPORTER_OTLP_ENDPOINT: http://tempo:4318
       TRACING_ENABLED: "true"
       LOKI_URL: http://loki:3100
@@ -68,11 +69,16 @@ infra:
     user: claims
     password: claims
     databases: [claims, payout]
+  redis:
+    image: redis:7-alpine
   kafka:
     image: apache/kafka-native:3.8.0
   elasticsearch:
     image: docker.elastic.co/elasticsearch/elasticsearch:8.17.0
     javaOpts: "-Xms512m -Xmx512m"
+  kibana:
+    enabled: true
+    image: docker.elastic.co/kibana/kibana:8.17.0
   observability:
     enabled: true
     prometheus: prom/prometheus:v3.1.0

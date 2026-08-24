@@ -3,6 +3,8 @@
 #   docker compose --profile core --profile search up -d --build   # + Elasticsearch + search-service
 #   docker compose --profile core --profile console up -d --build  # + adjuster console on :3000
 #   docker compose --profile core --profile observability up -d --build  # + Prometheus/Grafana/Loki/Tempo (Grafana :3001)
+#   docker compose --profile core --profile search up -d --build         # also brings Kibana on :5601 over the claims indices
+#   docker compose --profile ci up -d --build                            # Jenkins on :8090 (admin/admin), job "claims-platform"
 # Set TRACING_ENABLED=true (see .env.example) so the services export traces when the observability profile is up.
 services:
   postgres:
@@ -31,7 +33,7 @@ services:
   kafka:
     image: apache/kafka-native:3.8.0   # KRaft, no ZooKeeper, GraalVM native: ~100 MB RSS
     container_name: claims-kafka
-    profiles: ["core"]
+    profiles: ["core", "search"]       # search-service consumes claims.events
     environment:
       KAFKA_NODE_ID: 1
       KAFKA_PROCESS_ROLES: broker,controller
@@ -54,6 +56,23 @@ services:
         limits:
           memory: 512m
 
+  redis:
+    image: redis:7-alpine
+    container_name: claims-redis
+    profiles: ["core"]
+    command: ["redis-server", "--save", "", "--appendonly", "no", "--maxmemory", "64mb", "--maxmemory-policy", "allkeys-lru"]
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    deploy:
+      resources:
+        limits:
+          memory: 96m
+
   claim-service:
     build: ./claim-service
     container_name: claim-service
@@ -63,7 +82,10 @@ services:
         condition: service_healthy
       kafka:
         condition: service_started
+      redis:
+        condition: service_healthy
     environment:
+      SPRING_DATA_REDIS_HOST: redis
       LOKI_URL: ${LOKI_URL:-}
       OTEL_EXPORTER_OTLP_ENDPOINT: http://tempo:4318
       TRACING_ENABLED: ${TRACING_ENABLED:-false}
@@ -148,6 +170,41 @@ services:
       resources:
         limits:
           memory: 1g
+
+  kibana:
+    image: docker.elastic.co/kibana/kibana:8.17.0
+    container_name: claims-kibana
+    profiles: ["search"]
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    environment:
+      ELASTICSEARCH_HOSTS: http://elasticsearch:9200
+      NODE_OPTIONS: "--max-old-space-size=512"
+      TELEMETRY_ENABLED: "false"
+      XPACK_SECURITY_ENABLED: "false"
+    ports:
+      - "5601:5601"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:5601/api/status | grep -q '\"level\":\"available\"'"]
+      interval: 15s
+      timeout: 5s
+      retries: 30
+    deploy:
+      resources:
+        limits:
+          memory: 768m
+
+  kibana-init:
+    image: curlimages/curl:8.11.1
+    container_name: claims-kibana-init
+    profiles: ["search"]
+    depends_on:
+      kibana:
+        condition: service_healthy
+    volumes:
+      - ./infra/kibana:/init:ro
+    entrypoint: ["sh", "/init/setup.sh"]
 
   search-service:
     build: ./search-service
@@ -251,8 +308,27 @@ services:
         limits:
           memory: 192m
 
+  jenkins:
+    build: ./infra/jenkins
+    container_name: claims-jenkins
+    profiles: ["ci"]
+    environment:
+      JENKINS_ADMIN_PASSWORD: ${JENKINS_ADMIN_PASSWORD:-admin}
+      GIT_URL: ${GIT_URL:-/workspace}     # this repo, mounted read-only; set to a GitHub URL to build from remote
+    ports:
+      - "8090:8080"
+    volumes:
+      - jenkins-home:/var/jenkins_home
+      - /var/run/docker.sock:/var/run/docker.sock
+      - .:/workspace:ro
+    deploy:
+      resources:
+        limits:
+          memory: 1g
+
 volumes:
   postgres-data:
+  jenkins-home:
   prometheus-data:
   loki-data:
   tempo-data:
