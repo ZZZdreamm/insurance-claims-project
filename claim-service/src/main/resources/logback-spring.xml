@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+  <include resource="org/springframework/boot/logging/logback/defaults.xml"/>
+  <springProperty scope="context" name="app" source="spring.application.name" defaultValue="claim-service"/>
+  <springProperty scope="context" name="lokiUrl" source="logging.loki.url" defaultValue=""/>
+
+  <!-- console: Boot's default pattern already carries [app,traceId,spanId] when tracing is on the classpath -->
+  <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+    <encoder><pattern>${CONSOLE_LOG_PATTERN}</pattern></encoder>
+  </appender>
+
+  <!-- Loki: labels stay low-cardinality (app, level); trace id goes into the line so Grafana can derive a Tempo link.
+       The appender only exists when LOKI_URL is set (it validates the URL at construction). -->
+  <if condition='!property("lokiUrl").isEmpty()'>
+    <then>
+    <appender name="LOKI" class="com.github.loki4j.logback.Loki4jAppender">
+      <http><url>${lokiUrl}/loki/api/v1/push</url></http>
+      <format>
+        <label><pattern>app=${app},level=%level</pattern></label>
+        <message><pattern>%d{yyyy-MM-dd'T'HH:mm:ss.SSSXXX} %-5level [%thread] %logger{36} traceId=%X{traceId:-} spanId=%X{spanId:-} - %msg%n%ex</pattern></message>
+      </format>
+    </appender>
+      <root level="INFO"><appender-ref ref="LOKI"/></root>
+    </then>
+  </if>
+
+  <root level="INFO">
+    <appender-ref ref="CONSOLE"/>
+  </root>
+</configuration>
