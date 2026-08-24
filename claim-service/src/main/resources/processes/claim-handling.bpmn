@@ -1,0 +1,307 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
+                  xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
+                  xmlns:dc="http://www.omg.org/spec/DD/20100524/DC"
+                  xmlns:di="http://www.omg.org/spec/DD/20100524/DI"
+                  xmlns:camunda="http://camunda.org/schema/1.0/bpmn"
+                  id="Definitions_claim_handling"
+                  targetNamespace="http://kmultan.com/claims">
+
+  <bpmn:process id="claim-handling" name="Claim handling" isExecutable="true" camunda:historyTimeToLive="30">
+
+    <bpmn:startEvent id="start" name="Claim submitted">
+      <bpmn:outgoing>f1</bpmn:outgoing>
+    </bpmn:startEvent>
+
+    <!-- asyncBefore: the submit HTTP call commits first; the job executor picks this up afterwards -->
+    <bpmn:serviceTask id="startAssessment" name="Start assessment"
+                      camunda:asyncBefore="true" camunda:delegateExpression="${startAssessmentDelegate}">
+      <bpmn:incoming>f1</bpmn:incoming>
+      <bpmn:outgoing>f2</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <bpmn:serviceTask id="runAssessment" name="Automated damage assessment"
+                      camunda:delegateExpression="${runAssessmentDelegate}">
+      <bpmn:incoming>f2</bpmn:incoming>
+      <bpmn:outgoing>f3</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <bpmn:userTask id="adjusterReview" name="Adjuster review" camunda:candidateGroups="adjusters">
+      <bpmn:extensionElements>
+        <camunda:taskListener event="create" delegateExpression="${reviewTaskCreateListener}"/>
+      </bpmn:extensionElements>
+      <bpmn:incoming>f3</bpmn:incoming>
+      <bpmn:outgoing>f4</bpmn:outgoing>
+    </bpmn:userTask>
+
+    <!-- non-interrupting SLA timer: escalate, but keep the review task open -->
+    <bpmn:boundaryEvent id="slaTimer" name="SLA breached" attachedToRef="adjusterReview" cancelActivity="false">
+      <bpmn:outgoing>f_sla</bpmn:outgoing>
+      <bpmn:timerEventDefinition>
+        <bpmn:timeDuration xsi:type="bpmn:tFormalExpression" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">${slaDuration}</bpmn:timeDuration>
+      </bpmn:timerEventDefinition>
+    </bpmn:boundaryEvent>
+
+    <bpmn:serviceTask id="escalate" name="Escalate SLA breach" camunda:delegateExpression="${escalateSlaDelegate}">
+      <bpmn:incoming>f_sla</bpmn:incoming>
+      <bpmn:outgoing>f_sla_end</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <bpmn:endEvent id="escalated" name="Escalated">
+      <bpmn:incoming>f_sla_end</bpmn:incoming>
+    </bpmn:endEvent>
+
+    <bpmn:exclusiveGateway id="decisionGw" name="Decision?">
+      <bpmn:incoming>f4</bpmn:incoming>
+      <bpmn:outgoing>f_approve</bpmn:outgoing>
+      <bpmn:outgoing>f_reject</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+
+    <bpmn:serviceTask id="approveClaim" name="Approve claim" camunda:delegateExpression="${approveClaimDelegate}">
+      <bpmn:incoming>f_approve</bpmn:incoming>
+      <bpmn:outgoing>f5</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <bpmn:serviceTask id="rejectClaim" name="Reject claim" camunda:delegateExpression="${rejectClaimDelegate}">
+      <bpmn:incoming>f_reject</bpmn:incoming>
+      <bpmn:outgoing>f6</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <!-- ================= Payout saga =================
+         Two remote legs (reserve funds, issue payout) executed by payout-service via Kafka
+         command/reply, then a local leg (mark paid). Each remote leg is its own sub-process so
+         its compensation handler is only registered once the leg actually succeeded. A failed
+         or timed-out leg is caught by its boundary event, which throws compensation inside the
+         saga scope: every completed leg is undone in reverse order, then the claim is marked
+         PAYOUT_FAILED. -->
+    <bpmn:subProcess id="payoutSaga" name="Payout saga">
+      <bpmn:incoming>f5</bpmn:incoming>
+      <bpmn:outgoing>f_saga_done</bpmn:outgoing>
+
+      <bpmn:startEvent id="sagaStart"><bpmn:outgoing>s1</bpmn:outgoing></bpmn:startEvent>
+
+      <bpmn:subProcess id="reserveLeg" name="Reserve funds">
+        <bpmn:incoming>s1</bpmn:incoming>
+        <bpmn:outgoing>s2</bpmn:outgoing>
+        <bpmn:startEvent id="reserveStart"><bpmn:outgoing>r1</bpmn:outgoing></bpmn:startEvent>
+        <bpmn:serviceTask id="sendReserveFunds" name="Send RESERVE_FUNDS" camunda:asyncBefore="true"
+                          camunda:delegateExpression="${sendReserveFundsDelegate}">
+          <bpmn:incoming>r1</bpmn:incoming><bpmn:outgoing>r2</bpmn:outgoing>
+        </bpmn:serviceTask>
+        <bpmn:intermediateCatchEvent id="awaitReserveReply" name="Reply">
+          <bpmn:incoming>r2</bpmn:incoming><bpmn:outgoing>r3</bpmn:outgoing>
+          <bpmn:messageEventDefinition messageRef="msgPayoutReply"/>
+        </bpmn:intermediateCatchEvent>
+        <bpmn:exclusiveGateway id="reserveOk" name="Reserved?">
+          <bpmn:incoming>r3</bpmn:incoming><bpmn:outgoing>r_ok</bpmn:outgoing><bpmn:outgoing>r_fail</bpmn:outgoing>
+        </bpmn:exclusiveGateway>
+        <bpmn:endEvent id="reserveDone"><bpmn:incoming>r_ok</bpmn:incoming></bpmn:endEvent>
+        <bpmn:endEvent id="reserveFailed" name="Rejected">
+          <bpmn:incoming>r_fail</bpmn:incoming>
+          <bpmn:errorEventDefinition errorRef="payoutError"/>
+        </bpmn:endEvent>
+        <bpmn:sequenceFlow id="r1" sourceRef="reserveStart" targetRef="sendReserveFunds"/>
+        <bpmn:sequenceFlow id="r2" sourceRef="sendReserveFunds" targetRef="awaitReserveReply"/>
+        <bpmn:sequenceFlow id="r3" sourceRef="awaitReserveReply" targetRef="reserveOk"/>
+        <bpmn:sequenceFlow id="r_ok" sourceRef="reserveOk" targetRef="reserveDone">
+          <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">${replyType == 'FUNDS_RESERVED'}</bpmn:conditionExpression>
+        </bpmn:sequenceFlow>
+        <bpmn:sequenceFlow id="r_fail" sourceRef="reserveOk" targetRef="reserveFailed">
+          <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">${replyType != 'FUNDS_RESERVED'}</bpmn:conditionExpression>
+        </bpmn:sequenceFlow>
+      </bpmn:subProcess>
+      <bpmn:boundaryEvent id="reserveError" name="rejected" attachedToRef="reserveLeg">
+        <bpmn:outgoing>r_err</bpmn:outgoing>
+        <bpmn:errorEventDefinition errorRef="payoutError"/>
+      </bpmn:boundaryEvent>
+      <bpmn:boundaryEvent id="reserveTimeout" name="timeout" attachedToRef="reserveLeg">
+        <bpmn:outgoing>r_timeout</bpmn:outgoing>
+        <bpmn:timerEventDefinition><bpmn:timeDuration xsi:type="bpmn:tFormalExpression" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">${payoutTimeout}</bpmn:timeDuration></bpmn:timerEventDefinition>
+      </bpmn:boundaryEvent>
+      <bpmn:boundaryEvent id="reserveCompensation" attachedToRef="reserveLeg">
+        <bpmn:compensateEventDefinition/>
+      </bpmn:boundaryEvent>
+      <bpmn:serviceTask id="releaseFunds" name="Release funds" isForCompensation="true"
+                        camunda:delegateExpression="${sendReleaseFundsDelegate}"/>
+
+      <bpmn:subProcess id="payoutLeg" name="Issue payout">
+        <bpmn:incoming>s2</bpmn:incoming>
+        <bpmn:outgoing>s3</bpmn:outgoing>
+        <bpmn:startEvent id="payoutStart"><bpmn:outgoing>p1</bpmn:outgoing></bpmn:startEvent>
+        <bpmn:serviceTask id="sendIssuePayout" name="Send ISSUE_PAYOUT" camunda:asyncBefore="true"
+                          camunda:delegateExpression="${sendIssuePayoutDelegate}">
+          <bpmn:incoming>p1</bpmn:incoming><bpmn:outgoing>p2</bpmn:outgoing>
+        </bpmn:serviceTask>
+        <bpmn:intermediateCatchEvent id="awaitPayoutReply" name="Reply">
+          <bpmn:incoming>p2</bpmn:incoming><bpmn:outgoing>p3</bpmn:outgoing>
+          <bpmn:messageEventDefinition messageRef="msgPayoutReply"/>
+        </bpmn:intermediateCatchEvent>
+        <bpmn:exclusiveGateway id="payoutOk" name="Issued?">
+          <bpmn:incoming>p3</bpmn:incoming><bpmn:outgoing>p_ok</bpmn:outgoing><bpmn:outgoing>p_fail</bpmn:outgoing>
+        </bpmn:exclusiveGateway>
+        <bpmn:endEvent id="payoutDone"><bpmn:incoming>p_ok</bpmn:incoming></bpmn:endEvent>
+        <bpmn:endEvent id="payoutRejected" name="Failed">
+          <bpmn:incoming>p_fail</bpmn:incoming>
+          <bpmn:errorEventDefinition errorRef="payoutError"/>
+        </bpmn:endEvent>
+        <bpmn:sequenceFlow id="p1" sourceRef="payoutStart" targetRef="sendIssuePayout"/>
+        <bpmn:sequenceFlow id="p2" sourceRef="sendIssuePayout" targetRef="awaitPayoutReply"/>
+        <bpmn:sequenceFlow id="p3" sourceRef="awaitPayoutReply" targetRef="payoutOk"/>
+        <bpmn:sequenceFlow id="p_ok" sourceRef="payoutOk" targetRef="payoutDone">
+          <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">${replyType == 'PAYOUT_ISSUED'}</bpmn:conditionExpression>
+        </bpmn:sequenceFlow>
+        <bpmn:sequenceFlow id="p_fail" sourceRef="payoutOk" targetRef="payoutRejected">
+          <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">${replyType != 'PAYOUT_ISSUED'}</bpmn:conditionExpression>
+        </bpmn:sequenceFlow>
+      </bpmn:subProcess>
+      <bpmn:boundaryEvent id="payoutErrorEvt" name="failed" attachedToRef="payoutLeg">
+        <bpmn:outgoing>p_err</bpmn:outgoing>
+        <bpmn:errorEventDefinition errorRef="payoutError"/>
+      </bpmn:boundaryEvent>
+      <bpmn:boundaryEvent id="payoutTimeoutEvt" name="timeout" attachedToRef="payoutLeg">
+        <bpmn:outgoing>p_timeout</bpmn:outgoing>
+        <bpmn:timerEventDefinition><bpmn:timeDuration xsi:type="bpmn:tFormalExpression" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">${payoutTimeout}</bpmn:timeDuration></bpmn:timerEventDefinition>
+      </bpmn:boundaryEvent>
+      <bpmn:boundaryEvent id="payoutCompensation" attachedToRef="payoutLeg">
+        <bpmn:compensateEventDefinition/>
+      </bpmn:boundaryEvent>
+      <bpmn:serviceTask id="reversePayout" name="Reverse payout" isForCompensation="true"
+                        camunda:delegateExpression="${sendReversePayoutDelegate}"/>
+
+      <bpmn:serviceTask id="markClaimPaid" name="Mark claim paid" camunda:asyncBefore="true"
+                        camunda:delegateExpression="${markClaimPaidDelegate}">
+        <bpmn:incoming>s3</bpmn:incoming><bpmn:outgoing>s4</bpmn:outgoing>
+      </bpmn:serviceTask>
+      <bpmn:endEvent id="sagaPaid" name="Paid"><bpmn:incoming>s4</bpmn:incoming></bpmn:endEvent>
+
+      <!-- failure branch: compensate completed legs (same scope), then record the failure -->
+      <bpmn:intermediateThrowEvent id="compensate" name="Compensate">
+        <bpmn:incoming>r_err</bpmn:incoming><bpmn:incoming>r_timeout</bpmn:incoming>
+        <bpmn:incoming>p_err</bpmn:incoming><bpmn:incoming>p_timeout</bpmn:incoming>
+        <bpmn:outgoing>e2</bpmn:outgoing>
+        <bpmn:compensateEventDefinition waitForCompletion="true"/>
+      </bpmn:intermediateThrowEvent>
+      <bpmn:serviceTask id="markPayoutFailed" name="Mark payout failed" camunda:asyncBefore="true"
+                        camunda:delegateExpression="${markPayoutFailedDelegate}">
+        <bpmn:incoming>e2</bpmn:incoming><bpmn:outgoing>e3</bpmn:outgoing>
+      </bpmn:serviceTask>
+      <bpmn:endEvent id="sagaFailed" name="Payout failed (compensated)"><bpmn:incoming>e3</bpmn:incoming></bpmn:endEvent>
+
+      <bpmn:sequenceFlow id="s1" sourceRef="sagaStart" targetRef="reserveLeg"/>
+      <bpmn:sequenceFlow id="s2" sourceRef="reserveLeg" targetRef="payoutLeg"/>
+      <bpmn:sequenceFlow id="s3" sourceRef="payoutLeg" targetRef="markClaimPaid"/>
+      <bpmn:sequenceFlow id="s4" sourceRef="markClaimPaid" targetRef="sagaPaid"/>
+      <bpmn:sequenceFlow id="r_err" sourceRef="reserveError" targetRef="compensate"/>
+      <bpmn:sequenceFlow id="r_timeout" sourceRef="reserveTimeout" targetRef="compensate"/>
+      <bpmn:sequenceFlow id="p_err" sourceRef="payoutErrorEvt" targetRef="compensate"/>
+      <bpmn:sequenceFlow id="p_timeout" sourceRef="payoutTimeoutEvt" targetRef="compensate"/>
+      <bpmn:sequenceFlow id="e2" sourceRef="compensate" targetRef="markPayoutFailed"/>
+      <bpmn:sequenceFlow id="e3" sourceRef="markPayoutFailed" targetRef="sagaFailed"/>
+      <bpmn:association id="assoc_release" associationDirection="One" sourceRef="reserveCompensation" targetRef="releaseFunds"/>
+      <bpmn:association id="assoc_reverse" associationDirection="One" sourceRef="payoutCompensation" targetRef="reversePayout"/>
+    </bpmn:subProcess>
+
+    <bpmn:endEvent id="rejected" name="Rejected">
+      <bpmn:incoming>f6</bpmn:incoming>
+    </bpmn:endEvent>
+
+    <bpmn:endEvent id="sagaFinished" name="Payout saga finished"><bpmn:incoming>f_saga_done</bpmn:incoming></bpmn:endEvent>
+    <bpmn:sequenceFlow id="f_saga_done" sourceRef="payoutSaga" targetRef="sagaFinished"/>
+
+    <bpmn:sequenceFlow id="f1" sourceRef="start" targetRef="startAssessment"/>
+    <bpmn:sequenceFlow id="f2" sourceRef="startAssessment" targetRef="runAssessment"/>
+    <bpmn:sequenceFlow id="f3" sourceRef="runAssessment" targetRef="adjusterReview"/>
+    <bpmn:sequenceFlow id="f4" sourceRef="adjusterReview" targetRef="decisionGw"/>
+    <bpmn:sequenceFlow id="f_sla" sourceRef="slaTimer" targetRef="escalate"/>
+    <bpmn:sequenceFlow id="f_sla_end" sourceRef="escalate" targetRef="escalated"/>
+    <bpmn:sequenceFlow id="f_approve" name="approve" sourceRef="decisionGw" targetRef="approveClaim">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">${decision == 'APPROVE'}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="f_reject" name="reject" sourceRef="decisionGw" targetRef="rejectClaim">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">${decision == 'REJECT'}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="f5" sourceRef="approveClaim" targetRef="payoutSaga"/>
+    <bpmn:sequenceFlow id="f6" sourceRef="rejectClaim" targetRef="rejected"/>
+  </bpmn:process>
+
+  <bpmn:message id="msgPayoutReply" name="PayoutReply"/>
+  <bpmn:error id="payoutError" name="PayoutError" errorCode="PAYOUT_FAILED"/>
+
+  <bpmndi:BPMNDiagram id="Diagram_1">
+    <bpmndi:BPMNPlane id="Plane_1" bpmnElement="claim-handling">
+      <bpmndi:BPMNShape id="start_di" bpmnElement="start"><dc:Bounds x="152" y="182" width="36" height="36"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="startAssessment_di" bpmnElement="startAssessment"><dc:Bounds x="240" y="160" width="100" height="80"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="runAssessment_di" bpmnElement="runAssessment"><dc:Bounds x="390" y="160" width="100" height="80"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="adjusterReview_di" bpmnElement="adjusterReview"><dc:Bounds x="540" y="160" width="100" height="80"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="slaTimer_di" bpmnElement="slaTimer"><dc:Bounds x="592" y="222" width="36" height="36"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="escalate_di" bpmnElement="escalate"><dc:Bounds x="560" y="320" width="100" height="80"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="escalated_di" bpmnElement="escalated"><dc:Bounds x="712" y="342" width="36" height="36"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="decisionGw_di" bpmnElement="decisionGw" isMarkerVisible="true"><dc:Bounds x="695" y="175" width="50" height="50"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="approveClaim_di" bpmnElement="approveClaim"><dc:Bounds x="800" y="80" width="100" height="80"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="rejectClaim_di" bpmnElement="rejectClaim"><dc:Bounds x="800" y="200" width="100" height="80"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="rejected_di" bpmnElement="rejected"><dc:Bounds x="962" y="222" width="36" height="36"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="f1_di" bpmnElement="f1"><di:waypoint x="188" y="200"/><di:waypoint x="240" y="200"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="f2_di" bpmnElement="f2"><di:waypoint x="340" y="200"/><di:waypoint x="390" y="200"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="f3_di" bpmnElement="f3"><di:waypoint x="490" y="200"/><di:waypoint x="540" y="200"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="f4_di" bpmnElement="f4"><di:waypoint x="640" y="200"/><di:waypoint x="695" y="200"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="f_sla_di" bpmnElement="f_sla"><di:waypoint x="610" y="258"/><di:waypoint x="610" y="320"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="f_sla_end_di" bpmnElement="f_sla_end"><di:waypoint x="660" y="360"/><di:waypoint x="712" y="360"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="f_approve_di" bpmnElement="f_approve"><di:waypoint x="720" y="175"/><di:waypoint x="720" y="120"/><di:waypoint x="800" y="120"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="f_reject_di" bpmnElement="f_reject"><di:waypoint x="745" y="200"/><di:waypoint x="770" y="200"/><di:waypoint x="770" y="240"/><di:waypoint x="800" y="240"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="f5_di" bpmnElement="f5"><di:waypoint x="900" y="120"/><di:waypoint x="960" y="120"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="payoutSaga_di" bpmnElement="payoutSaga" isExpanded="true"><dc:Bounds x="960" y="20" width="960" height="420"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="sagaStart_di" bpmnElement="sagaStart"><dc:Bounds x="982" y="102" width="36" height="36"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="reserveLeg_di" bpmnElement="reserveLeg" isExpanded="true"><dc:Bounds x="1050" y="50" width="330" height="140"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="reserveStart_di" bpmnElement="reserveStart"><dc:Bounds x="1062" y="102" width="36" height="36"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="sendReserveFunds_di" bpmnElement="sendReserveFunds"><dc:Bounds x="1110" y="80" width="90" height="80"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="awaitReserveReply_di" bpmnElement="awaitReserveReply"><dc:Bounds x="1212" y="102" width="36" height="36"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="reserveOk_di" bpmnElement="reserveOk" isMarkerVisible="true"><dc:Bounds x="1265" y="95" width="50" height="50"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="reserveDone_di" bpmnElement="reserveDone"><dc:Bounds x="1332" y="102" width="36" height="36"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="reserveFailed_di" bpmnElement="reserveFailed"><dc:Bounds x="1272" y="150" width="36" height="36"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="reserveError_di" bpmnElement="reserveError"><dc:Bounds x="1060" y="172" width="36" height="36"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="reserveTimeout_di" bpmnElement="reserveTimeout"><dc:Bounds x="1110" y="172" width="36" height="36"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="reserveCompensation_di" bpmnElement="reserveCompensation"><dc:Bounds x="1300" y="172" width="36" height="36"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="releaseFunds_di" bpmnElement="releaseFunds"><dc:Bounds x="1273" y="230" width="90" height="60"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="payoutLeg_di" bpmnElement="payoutLeg" isExpanded="true"><dc:Bounds x="1410" y="50" width="330" height="140"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="payoutStart_di" bpmnElement="payoutStart"><dc:Bounds x="1422" y="102" width="36" height="36"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="sendIssuePayout_di" bpmnElement="sendIssuePayout"><dc:Bounds x="1470" y="80" width="90" height="80"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="awaitPayoutReply_di" bpmnElement="awaitPayoutReply"><dc:Bounds x="1572" y="102" width="36" height="36"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="payoutOk_di" bpmnElement="payoutOk" isMarkerVisible="true"><dc:Bounds x="1625" y="95" width="50" height="50"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="payoutDone_di" bpmnElement="payoutDone"><dc:Bounds x="1692" y="102" width="36" height="36"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="payoutRejected_di" bpmnElement="payoutRejected"><dc:Bounds x="1632" y="150" width="36" height="36"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="payoutErrorEvt_di" bpmnElement="payoutErrorEvt"><dc:Bounds x="1420" y="172" width="36" height="36"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="payoutTimeoutEvt_di" bpmnElement="payoutTimeoutEvt"><dc:Bounds x="1470" y="172" width="36" height="36"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="payoutCompensation_di" bpmnElement="payoutCompensation"><dc:Bounds x="1660" y="172" width="36" height="36"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="reversePayout_di" bpmnElement="reversePayout"><dc:Bounds x="1633" y="230" width="90" height="60"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="markClaimPaid_di" bpmnElement="markClaimPaid"><dc:Bounds x="1770" y="80" width="90" height="80"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="sagaPaid_di" bpmnElement="sagaPaid"><dc:Bounds x="1797" y="182" width="36" height="36"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="compensate_di" bpmnElement="compensate"><dc:Bounds x="1420" y="342" width="36" height="36"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="markPayoutFailed_di" bpmnElement="markPayoutFailed"><dc:Bounds x="1500" y="320" width="100" height="80"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="sagaFailed_di" bpmnElement="sagaFailed"><dc:Bounds x="1642" y="342" width="36" height="36"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="sagaFinished_di" bpmnElement="sagaFinished"><dc:Bounds x="1962" y="212" width="36" height="36"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="s1_di" bpmnElement="s1"><di:waypoint x="1018" y="120"/><di:waypoint x="1050" y="120"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="r1_di" bpmnElement="r1"><di:waypoint x="1098" y="120"/><di:waypoint x="1110" y="120"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="r2_di" bpmnElement="r2"><di:waypoint x="1200" y="120"/><di:waypoint x="1212" y="120"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="r3_di" bpmnElement="r3"><di:waypoint x="1248" y="120"/><di:waypoint x="1265" y="120"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="r_ok_di" bpmnElement="r_ok"><di:waypoint x="1315" y="120"/><di:waypoint x="1332" y="120"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="r_fail_di" bpmnElement="r_fail"><di:waypoint x="1290" y="145"/><di:waypoint x="1290" y="150"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="assoc_release_di" bpmnElement="assoc_release"><di:waypoint x="1318" y="208"/><di:waypoint x="1318" y="230"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="s2_di" bpmnElement="s2"><di:waypoint x="1380" y="120"/><di:waypoint x="1410" y="120"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="p1_di" bpmnElement="p1"><di:waypoint x="1458" y="120"/><di:waypoint x="1470" y="120"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="p2_di" bpmnElement="p2"><di:waypoint x="1560" y="120"/><di:waypoint x="1572" y="120"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="p3_di" bpmnElement="p3"><di:waypoint x="1608" y="120"/><di:waypoint x="1625" y="120"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="p_ok_di" bpmnElement="p_ok"><di:waypoint x="1675" y="120"/><di:waypoint x="1692" y="120"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="p_fail_di" bpmnElement="p_fail"><di:waypoint x="1650" y="145"/><di:waypoint x="1650" y="150"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="assoc_reverse_di" bpmnElement="assoc_reverse"><di:waypoint x="1678" y="208"/><di:waypoint x="1678" y="230"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="s3_di" bpmnElement="s3"><di:waypoint x="1740" y="120"/><di:waypoint x="1770" y="120"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="s4_di" bpmnElement="s4"><di:waypoint x="1815" y="160"/><di:waypoint x="1815" y="182"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="r_err_di" bpmnElement="r_err"><di:waypoint x="1078" y="208"/><di:waypoint x="1078" y="360"/><di:waypoint x="1420" y="360"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="r_timeout_di" bpmnElement="r_timeout"><di:waypoint x="1128" y="208"/><di:waypoint x="1128" y="360"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="p_err_di" bpmnElement="p_err"><di:waypoint x="1438" y="208"/><di:waypoint x="1438" y="342"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="p_timeout_di" bpmnElement="p_timeout"><di:waypoint x="1488" y="208"/><di:waypoint x="1488" y="300"/><di:waypoint x="1438" y="300"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="e2_di" bpmnElement="e2"><di:waypoint x="1456" y="360"/><di:waypoint x="1500" y="360"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="e3_di" bpmnElement="e3"><di:waypoint x="1600" y="360"/><di:waypoint x="1642" y="360"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="f_saga_done_di" bpmnElement="f_saga_done"><di:waypoint x="1920" y="230"/><di:waypoint x="1962" y="230"/></bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>

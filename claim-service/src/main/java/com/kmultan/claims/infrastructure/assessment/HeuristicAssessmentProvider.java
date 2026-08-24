@@ -1,0 +1,54 @@
+package com.kmultan.claims.infrastructure.assessment;
+
+import com.kmultan.claims.application.assessment.Assessment;
+import com.kmultan.claims.application.assessment.Assessment.Severity;
+import com.kmultan.claims.application.assessment.AssessmentProvider;
+import com.kmultan.claims.domain.Claim;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.stereotype.Component;
+
+import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.util.List;
+import java.util.Locale;
+
+/**
+ * Deterministic, dependency-free triage: keyword scan of the description plus
+ * the policyholder's own estimate. Good enough to drive the process and to
+ * make integration tests reproducible. Selected when
+ * {@code claims.assessment.provider=heuristic} (the default).
+ */
+@Component
+@ConditionalOnProperty(name = "claims.assessment.provider", havingValue = "heuristic", matchIfMissing = true)
+public class HeuristicAssessmentProvider implements AssessmentProvider {
+
+    private static final List<String> SEVERE = List.of("total loss", "fire", "flood", "rolled", "airbag", "frame", "engine");
+    private static final List<String> MODERATE = List.of("door", "bonnet", "hood", "windscreen", "windshield", "axle", "wheel", "headlight");
+
+    private static final BigDecimal SEVERE_THRESHOLD = new BigDecimal("10000");
+    private static final BigDecimal MODERATE_THRESHOLD = new BigDecimal("2500");
+
+    @Override
+    public Assessment assess(Claim claim) {
+        String text = claim.getDescription().toLowerCase(Locale.ROOT);
+        BigDecimal estimate = claim.getEstimatedAmount() == null ? BigDecimal.ZERO : claim.getEstimatedAmount();
+
+        Severity severity;
+        if (SEVERE.stream().anyMatch(text::contains) || estimate.compareTo(SEVERE_THRESHOLD) >= 0) {
+            severity = Severity.SEVERE;
+        } else if (MODERATE.stream().anyMatch(text::contains) || estimate.compareTo(MODERATE_THRESHOLD) >= 0) {
+            severity = Severity.MODERATE;
+        } else {
+            severity = Severity.MINOR;
+        }
+
+        // sanity-adjust the estimate towards a per-severity band; an unspecified estimate gets the band floor
+        BigDecimal floor = switch (severity) {
+            case MINOR -> new BigDecimal("300");
+            case MODERATE -> new BigDecimal("1500");
+            case SEVERE -> new BigDecimal("8000");
+        };
+        BigDecimal assessed = estimate.max(floor).setScale(2, RoundingMode.HALF_UP);
+        return new Assessment(severity, assessed, "heuristic");
+    }
+}
