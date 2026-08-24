@@ -1,0 +1,32 @@
+apiVersion: 1
+datasources:
+  - name: Prometheus
+    uid: prometheus
+    type: prometheus
+    url: http://prometheus:9090
+    isDefault: true
+  - name: Loki
+    uid: loki
+    type: loki
+    url: http://loki:3100
+    jsonData:
+      # click a traceId in a log line -> jump to the trace in Tempo
+      derivedFields:
+        - name: TraceID
+          matcherRegex: "traceId=(\\w+)"
+          url: "$${__value.raw}"
+          datasourceUid: tempo
+  - name: Tempo
+    uid: tempo
+    type: tempo
+    url: http://tempo:3200
+    jsonData:
+      # from a span -> the logs of that service around that time
+      tracesToLogsV2:
+        datasourceUid: loki
+        spanStartTimeShift: "-5m"
+        spanEndTimeShift: "5m"
+        filterByTraceID: true
+        tags: [{ key: "service.name", value: "app" }]
+      serviceMap:
+        datasourceUid: prometheus

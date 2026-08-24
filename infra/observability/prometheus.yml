@@ -1,0 +1,15 @@
+global:
+  scrape_interval: 10s
+scrape_configs:
+  - job_name: claim-service
+    metrics_path: /actuator/prometheus
+    static_configs: [{ targets: ["claim-service:8080"] }]
+  - job_name: payout-service
+    metrics_path: /actuator/prometheus
+    static_configs: [{ targets: ["payout-service:8082"] }]
+  - job_name: search-service
+    metrics_path: /actuator/prometheus
+    static_configs: [{ targets: ["search-service:8081"] }]
+  - job_name: assessment-service
+    metrics_path: /metrics
+    static_configs: [{ targets: ["assessment-service:8000"] }]
