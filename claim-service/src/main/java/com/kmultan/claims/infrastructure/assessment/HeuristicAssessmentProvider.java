@@ -1,10 +1,9 @@
 package com.kmultan.claims.infrastructure.assessment;
 
 import com.kmultan.claims.application.assessment.Assessment;
-import com.kmultan.claims.application.assessment.Assessment.Severity;
 import com.kmultan.claims.application.assessment.AssessmentProvider;
 import com.kmultan.claims.domain.Claim;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import com.kmultan.claims.domain.Severity;
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
@@ -14,12 +13,11 @@ import java.util.Locale;
 
 /**
  * Deterministic, dependency-free triage: keyword scan of the description plus
- * the policyholder's own estimate. Good enough to drive the process and to
- * make integration tests reproducible. Selected when
- * {@code claims.assessment.provider=heuristic} (the default).
+ * the policyholder's own estimate. Used only as the timeout fallback when
+ * assessment-service does not answer; the result is labelled so the
+ * degradation is visible on the claim.
  */
 @Component
-@ConditionalOnProperty(name = "claims.assessment.provider", havingValue = "heuristic", matchIfMissing = true)
 public class HeuristicAssessmentProvider implements AssessmentProvider {
 
     private static final List<String> SEVERE = List.of("total loss", "fire", "flood", "rolled", "airbag", "frame", "engine");
@@ -49,6 +47,6 @@ public class HeuristicAssessmentProvider implements AssessmentProvider {
             case SEVERE -> new BigDecimal("8000");
         };
         BigDecimal assessed = estimate.max(floor).setScale(2, RoundingMode.HALF_UP);
-        return new Assessment(severity, assessed, "heuristic");
+        return new Assessment(severity, assessed, "heuristic-fallback");
     }
 }

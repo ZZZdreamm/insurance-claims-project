@@ -39,7 +39,7 @@ class TracePropagationIT extends AbstractIntegrationTest {
         Span span = tracer.nextSpan().name("test submit").start();
         Claim claim;
         try (Tracer.SpanInScope ignored = tracer.withSpan(span)) {
-            claim = service.submit("POL-TR", "TR 1", LocalDate.now(), "Trace propagation integration test", null);
+            claim = service.submit("POL-TR", "TR 1", LocalDate.now(), "Trace propagation integration test", null, List.of());
         } finally {
             span.end();
         }

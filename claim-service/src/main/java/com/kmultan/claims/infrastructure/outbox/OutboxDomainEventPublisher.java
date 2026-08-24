@@ -20,7 +20,7 @@ public class OutboxDomainEventPublisher implements DomainEventPublisher {
     private final OutboxWriter outbox;
     private final String topic;
 
-    public OutboxDomainEventPublisher(OutboxWriter outbox, @Value("${claims.kafka.topic}") String topic) {
+    public OutboxDomainEventPublisher(OutboxWriter outbox, @Value("${claims.topics.claims}") String topic) {
         this.outbox = outbox;
         this.topic = topic;
     }

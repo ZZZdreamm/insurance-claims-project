@@ -1,6 +1,10 @@
 spring:
   application:
     name: claim-service
+  servlet:
+    multipart:
+      max-file-size: 8MB
+      max-request-size: 40MB
   datasource:
     url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/claims}
     username: ${SPRING_DATASOURCE_USERNAME:claims}
@@ -36,43 +40,20 @@ spring:
       ack-mode: record
       observation-enabled: true
 
-camunda:
-  bpm:
-    admin-user:
-      id: demo
-      password: demo
-      first-name: Demo
-    filter:
-      create: All tasks
-    database:
-      schema-update: true      # engine tables are managed by Camunda, application tables by Flyway
-    history-level: activity
-    job-execution:
-      enabled: true
-      deployment-aware: false
-    default-serialization-format: application/json
-    webapp:
-      application-path: /camunda
-      index-redirect-enabled: false
-    authorization:
-      enabled: false
-
 claims:
-  process:
-    sla-duration: PT48H        # adjuster review SLA; ISO-8601 duration
-    payout-timeout: PT10M      # max wait for a payout-service reply per saga leg
-  payout:
-    commands-topic: payout.commands
-    replies-topic: payout.events
+  topics:
+    claims: claims.events         # produced: every claim fact
+    assessment: assessment.events # consumed: ASSESSMENT_COMPLETED from assessment-service
+    payout: payout.events         # consumed: PAYOUT_ISSUED / PAYOUT_FAILED / RESERVATION_REJECTED
+  review:
+    sla: PT48H                    # adjuster review SLA; escalation is non-blocking
   assessment:
-    provider: ${CLAIMS_ASSESSMENT_PROVIDER:heuristic}   # heuristic | http
-    http:
-      url: ${CLAIMS_ASSESSMENT_URL:http://localhost:8000}
-      timeout: 3s
+    timeout: PT2M                 # no ASSESSMENT_COMPLETED within this -> in-process heuristic fallback
+  scheduler:
+    interval-ms: 15000
   cors:
     allowed-origins: http://localhost:3000
   kafka:
-    topic: claims.events
     partitions: 3
   outbox:
     poll-interval-ms: 1000

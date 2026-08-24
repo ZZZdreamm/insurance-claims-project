@@ -1,21 +1,21 @@
 package com.kmultan.claims;
 
+import com.kmultan.claims.infrastructure.consumers.FakeDownstreamServices;
 import org.junit.jupiter.api.Tag;
-import com.kmultan.claims.infrastructure.payout.FakePayoutParticipant;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.context.annotation.Import;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
+import org.springframework.context.annotation.Import;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.kafka.KafkaContainer;
 
 /**
- * Shared container setup. Containers are static and started once per JVM, so all
- * ITs reuse one Postgres and one Kafka (Spring's context cache does the rest).
- * Requires Docker. Skip with {@code mvn verify -DskipITs}.
+ * Shared container setup (one Postgres, one Kafka per JVM) plus in-JVM fakes of
+ * assessment-service and payout-service that react to our events over the
+ * real broker. Requires Docker. Skip with {@code mvn verify -DskipITs}.
  */
 @Tag("integration")
 @SpringBootTest
-@Import(FakePayoutParticipant.class)
+@Import(FakeDownstreamServices.class)
 public abstract class AbstractIntegrationTest {
 
     @ServiceConnection

@@ -1,7 +1,7 @@
 package com.kmultan.claims.infrastructure.assessment;
 
 import com.kmultan.claims.application.assessment.Assessment;
-import com.kmultan.claims.application.assessment.Assessment.Severity;
+import com.kmultan.claims.domain.Severity;
 import com.kmultan.claims.domain.Claim;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;

@@ -3,9 +3,10 @@ package com.kmultan.claims.application.assessment;
 import com.kmultan.claims.domain.Claim;
 
 /**
- * Port for damage triage. The default adapter is a deterministic heuristic so
- * the demo and the tests need no model download; a vision-model adapter
- * (assessment-service over HTTP) plugs in behind the same interface.
+ * Port for in-process triage. Normally triage is done by assessment-service
+ * reacting to CLAIM_SUBMITTED over Kafka; this port is the fallback used when
+ * no result arrives within the configured timeout, so a down ML service never
+ * blocks claims.
  */
 public interface AssessmentProvider {
     Assessment assess(Claim claim);

@@ -4,9 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.kmultan.claims.AbstractIntegrationTest;
 import com.kmultan.claims.application.ClaimService;
-import com.kmultan.claims.application.workflow.ClaimWorkflow;
-import com.kmultan.claims.application.workflow.ReviewDecision;
-import com.kmultan.claims.application.workflow.ReviewTask;
+import com.kmultan.claims.domain.ClaimStatus;
 import com.kmultan.claims.domain.Claim;
 import com.kmultan.claims.domain.ClaimRepository;
 import org.apache.kafka.clients.consumer.Consumer;
@@ -37,12 +35,11 @@ import static org.awaitility.Awaitility.await;
 class OutboxIT extends AbstractIntegrationTest {
 
     @Autowired ClaimService service;
-    @Autowired ClaimWorkflow workflow;
     @Autowired ClaimRepository claims;
     @Autowired OutboxRepository outbox;
     @Autowired TransactionTemplate tx;
     @Autowired ObjectMapper json;
-    @Value("${claims.kafka.topic}") String topic;
+    @Value("${claims.topics.claims}") String topic;
 
     Consumer<String, String> consumer;
 
@@ -60,7 +57,7 @@ class OutboxIT extends AbstractIntegrationTest {
 
     @Test
     void eventIsWrittenInSameTransactionAndRelayedToKafka() throws Exception {
-        Claim claim = service.submit("POL-OB", "OB 1234", LocalDate.now(), "Outbox integration test claim", new BigDecimal("100"));
+        Claim claim = service.submit("POL-OB", "OB 1234", LocalDate.now(), "Outbox integration test claim", new BigDecimal("100"), List.of());
 
         // the process may already have produced assessment events; the first row is always the submission
         List<OutboxEvent> rows = outbox.findByAggregateIdOrderById(claim.getId());
@@ -82,7 +79,7 @@ class OutboxIT extends AbstractIntegrationTest {
     void rollbackDiscardsBothAggregateAndEvent() {
         long before = outbox.count();
         assertThatThrownBy(() -> tx.executeWithoutResult(s -> {
-            service.submit("POL-RB", "RB 1", LocalDate.now(), "This transaction will roll back", null);
+            service.submit("POL-RB", "RB 1", LocalDate.now(), "This transaction will roll back", null, List.of());
             throw new IllegalStateException("boom");
         })).isInstanceOf(IllegalStateException.class);
 
@@ -92,14 +89,12 @@ class OutboxIT extends AbstractIntegrationTest {
 
     @Test
     void eventsForOneClaimArriveInOrderOnOnePartition() throws Exception {
-        Claim claim = service.submit("POL-ORD", "ORD 1", LocalDate.now(), "Ordering integration test claim", null);
-        // assessment runs inside the BPMN process; approve through the human task like an adjuster would
-        ReviewTask[] task = new ReviewTask[1];
-        await().atMost(Duration.ofSeconds(20)).untilAsserted(() -> {
-            task[0] = workflow.openReviewTasks().stream().filter(t -> t.claimId().equals(claim.getId())).findFirst().orElse(null);
-            assertThat(task[0]).isNotNull();
-        });
-        workflow.completeReview(task[0].taskId(), new ReviewDecision(ReviewDecision.Decision.APPROVE, new BigDecimal("250"), null));
+        Claim claim = service.submit("POL-ORD", "ORD 1", LocalDate.now(), "Ordering integration test claim", null, List.of());
+        // the fake assessment-service answers over Kafka; then approve like an adjuster would
+        await().atMost(Duration.ofSeconds(20)).untilAsserted(() ->
+                assertThat(service.get(claim.getId()).getStatus()).isEqualTo(ClaimStatus.PENDING_REVIEW));
+        service.claimReview(claim.getId(), "alice");
+        service.approve(claim.getId(), new BigDecimal("250"));
 
         List<ConsumerRecord<String, String>> records = new ArrayList<>();
         await().atMost(Duration.ofSeconds(15)).untilAsserted(() -> {
@@ -109,7 +104,7 @@ class OutboxIT extends AbstractIntegrationTest {
         });
 
         assertThat(records).extracting(r -> new String(r.headers().lastHeader("eventType").value()))
-                .containsExactly("CLAIM_SUBMITTED", "ASSESSMENT_STARTED", "ASSESSMENT_COMPLETED", "CLAIM_APPROVED");
+                .containsExactly("CLAIM_SUBMITTED", "ASSESSMENT_COMPLETED", "REVIEW_CLAIMED", "CLAIM_APPROVED");
         assertThat(records).extracting(ConsumerRecord::partition).containsOnly(records.get(0).partition());
         assertThat(records).extracting(r -> Long.parseLong(new String(r.headers().lastHeader("sequence").value())))
                 .isSorted();

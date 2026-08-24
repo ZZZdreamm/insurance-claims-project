@@ -6,25 +6,13 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.kafka.config.TopicBuilder;
 
+/** Every topic is partitioned by claim id, so all facts about one claim are consumed in order. */
 @Configuration
 public class KafkaTopicConfig {
 
-    /** Partitioned by claim id, so every event for one claim is consumed in order. */
-    @Bean
-    NewTopic claimsEventsTopic(@Value("${claims.kafka.topic}") String topic,
-                               @Value("${claims.kafka.partitions:3}") int partitions) {
-        return TopicBuilder.name(topic).partitions(partitions).replicas(1).build();
-    }
-
-    @Bean
-    NewTopic payoutCommandsTopic(@Value("${claims.payout.commands-topic}") String topic,
-                                 @Value("${claims.kafka.partitions:3}") int partitions) {
-        return TopicBuilder.name(topic).partitions(partitions).replicas(1).build();
-    }
-
-    @Bean
-    NewTopic payoutEventsTopic(@Value("${claims.payout.replies-topic}") String topic,
-                               @Value("${claims.kafka.partitions:3}") int partitions) {
-        return TopicBuilder.name(topic).partitions(partitions).replicas(1).build();
-    }
+    @Bean NewTopic claimsEvents(@Value("${claims.topics.claims}") String t, @Value("${claims.kafka.partitions:3}") int p) { return TopicBuilder.name(t).partitions(p).replicas(1).build(); }
+    @Bean NewTopic assessmentEvents(@Value("${claims.topics.assessment}") String t, @Value("${claims.kafka.partitions:3}") int p) { return TopicBuilder.name(t).partitions(p).replicas(1).build(); }
+    @Bean NewTopic payoutEvents(@Value("${claims.topics.payout}") String t, @Value("${claims.kafka.partitions:3}") int p) { return TopicBuilder.name(t).partitions(p).replicas(1).build(); }
+    @Bean NewTopic assessmentDlt(@Value("${claims.topics.assessment}") String t, @Value("${claims.kafka.partitions:3}") int p) { return TopicBuilder.name(t + ".DLT").partitions(p).replicas(1).build(); }
+    @Bean NewTopic payoutDlt(@Value("${claims.topics.payout}") String t, @Value("${claims.kafka.partitions:3}") int p) { return TopicBuilder.name(t + ".DLT").partitions(p).replicas(1).build(); }
 }
