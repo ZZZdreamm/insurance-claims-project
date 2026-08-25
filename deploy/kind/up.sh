@@ -6,9 +6,13 @@ set -euo pipefail
 cd "$(dirname "$0")/../.."
 CLUSTER=${CLUSTER:-claims}
 kind get clusters | grep -qx "$CLUSTER" || kind create cluster --name "$CLUSTER"
-for svc in claim-service payout-service search-service assessment-service adjuster-console; do
-  docker build -t "claims/$svc:local" "./$svc"
-  kind load docker-image "claims/$svc:local" --name "$CLUSTER"
+for service in claim-service payout-service search-service; do
+  docker build -f "$service/Dockerfile" -t "claims/$service:local" .      # multi-module: root context
+  kind load docker-image "claims/$service:local" --name "$CLUSTER"
+done
+for service in assessment-service adjuster-console; do
+  docker build -t "claims/$service:local" "./$service"
+  kind load docker-image "claims/$service:local" --name "$CLUSTER"
 done
 helm upgrade --install claims deploy/helm/claims-platform --wait --timeout 10m
 kubectl get pods

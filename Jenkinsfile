@@ -37,8 +37,11 @@ pipeline {
       steps {
         script {
           def tag = env.GIT_COMMIT ? env.GIT_COMMIT.take(8) : 'local'
-          for (svc in ['claim-service', 'payout-service', 'search-service', 'assessment-service', 'adjuster-console']) {
-            sh "docker build -t claims/${svc}:${tag} ./${svc}"
+          for (service in ['claim-service', 'payout-service', 'search-service']) {
+            sh "docker build -f ${service}/Dockerfile -t claims/${service}:${tag} ."   // multi-module: root context
+          }
+          for (service in ['assessment-service', 'adjuster-console']) {
+            sh "docker build -t claims/${service}:${tag} ./${service}"
           }
         }
       }

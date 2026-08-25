@@ -74,7 +74,9 @@ services:
           memory: 96m
 
   claim-service:
-    build: ./claim-service
+    build:
+      context: .
+      dockerfile: claim-service/Dockerfile
     container_name: claim-service
     profiles: ["core"]
     depends_on:
@@ -105,7 +107,9 @@ services:
           memory: 384m
 
   payout-service:
-    build: ./payout-service
+    build:
+      context: .
+      dockerfile: payout-service/Dockerfile
     container_name: payout-service
     profiles: ["core"]
     depends_on:
@@ -213,7 +217,9 @@ services:
     entrypoint: ["sh", "/init/setup.sh"]
 
   search-service:
-    build: ./search-service
+    build:
+      context: .
+      dockerfile: search-service/Dockerfile
     container_name: search-service
     profiles: ["search"]
     depends_on:
