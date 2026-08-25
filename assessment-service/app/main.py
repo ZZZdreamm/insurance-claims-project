@@ -1,4 +1,5 @@
 import base64
+import logging
 from contextlib import asynccontextmanager
 from decimal import Decimal
 
@@ -6,6 +7,8 @@ from fastapi import FastAPI
 from pydantic import BaseModel, Field
 
 from app import consumer, model, observability, vision
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
 
 @asynccontextmanager

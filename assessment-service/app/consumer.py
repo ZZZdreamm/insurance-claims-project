@@ -19,7 +19,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Callable
 
-from app import model
+from app import auth, model
 
 log = logging.getLogger("assessment.consumer")
 
@@ -57,14 +57,18 @@ def build_assessment_event(claim_event: dict, fetch_photos: FetchPhotos) -> dict
     }
 
 
-def http_photo_fetcher(base_url: str) -> FetchPhotos:
+def http_photo_fetcher(base_url: str, tokens: auth.TokenProvider | None = None) -> FetchPhotos:
     import httpx
 
     def fetch(claim_id: str, photo_ids: list[str]) -> list[bytes]:
         out: list[bytes] = []
         with httpx.Client(timeout=10.0) as client:
             for pid in photo_ids:
-                r = client.get(f"{base_url}/api/v1/claims/{claim_id}/photos/{pid}")
+                headers = {"Authorization": tokens.bearer()} if tokens else {}
+                r = client.get(f"{base_url}/api/v1/claims/{claim_id}/photos/{pid}", headers=headers)
+                if r.status_code == 401 and tokens:          # token expired or secret rotated: sign in again once
+                    tokens.invalidate()
+                    r = client.get(f"{base_url}/api/v1/claims/{claim_id}/photos/{pid}", headers={"Authorization": tokens.bearer()})
                 r.raise_for_status()
                 out.append(r.content)
         return out
@@ -76,10 +80,12 @@ def run(bootstrap: str, stop: threading.Event) -> None:
     from confluent_kafka import Consumer, Producer
 
     consumer = Consumer({"bootstrap.servers": bootstrap, "group.id": GROUP_ID,
-                         "auto.offset.reset": "earliest", "enable.auto.commit": False})
+                         "auto.offset.reset": "earliest", "enable.auto.commit": False,
+                         # a replaced container must not keep its partitions for the default 45 s
+                         "session.timeout.ms": 10000, "heartbeat.interval.ms": 3000})
     producer = Producer({"bootstrap.servers": bootstrap, "enable.idempotence": True})
     consumer.subscribe([CLAIMS_TOPIC])
-    fetch = http_photo_fetcher(CLAIM_SERVICE_URL)
+    fetch = http_photo_fetcher(CLAIM_SERVICE_URL, auth.from_env(CLAIM_SERVICE_URL))
     log.info("consuming %s -> producing %s (claim-service at %s)", CLAIMS_TOPIC, ASSESSMENT_TOPIC, CLAIM_SERVICE_URL)
     while not stop.is_set():
         msg = consumer.poll(1.0)
