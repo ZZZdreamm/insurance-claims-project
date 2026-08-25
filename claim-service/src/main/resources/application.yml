@@ -65,7 +65,7 @@ claims:
   idempotency:
     ttl: PT24H                    # how long an Idempotency-Key maps to the claim it created
   ratelimit:
-    submit-per-minute: 30         # per client (X-Client-Id header, else remote address) on POST /api/v1/claims
+    submit-per-minute: ${RATE_LIMIT_SUBMIT_PER_MINUTE:30}   # per client (X-Client-Id header, else remote address) on POST /api/v1/claims
   cors:
     allowed-origins: http://localhost:3000
   kafka:

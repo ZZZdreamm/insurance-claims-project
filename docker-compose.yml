@@ -85,6 +85,7 @@ services:
       redis:
         condition: service_healthy
     environment:
+      RATE_LIMIT_SUBMIT_PER_MINUTE: ${RATE_LIMIT_SUBMIT_PER_MINUTE:-30}   # raise for load tests (perf/run.sh)
       SERVICE_ACCOUNT_PASSWORD: ${SERVICE_ACCOUNT_PASSWORD:-assessment-secret}
       AUTH_JWT_SECRET: ${AUTH_JWT_SECRET:-dev-only-secret-change-me-please-32-bytes-minimum}
       SPRING_DATA_REDIS_HOST: redis
