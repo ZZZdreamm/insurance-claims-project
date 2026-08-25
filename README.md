@@ -171,6 +171,9 @@ mvn verify -DskipITs    # unit tests only
 mvn verify -Dperf       # additionally the performance ITs (tag `perf`, excluded by default)
 ```
 
+Shared test fixtures come from `platform-commons`' test-jar: `TestJwtTokenFactory` mints tokens exactly
+as claim-service does, `KafkaTestConsumer` accumulates records per key for `await()` assertions.
+
 ```bash
 cd assessment-service && pip install -r requirements-dev.txt && python -m pytest
 ```
@@ -294,38 +297,44 @@ Validation, a Postgres transaction with the outbox row, and was later relayed to
 ## Layout
 
 ```
-claim-service/          Spring Boot 3 / Java 21 — the claim aggregate
+platform-commons/       Shared infrastructure library (no JPA): Kafka dead-lettering, W3C trace propagation,
+                        JWT resource-server security (decoder, role converter, statelessBearerApi), ProblemDetails,
+                        logback-platform.xml; test-jar with TestJwtTokenFactory and KafkaTestConsumer
+platform-outbox/        Transactional outbox library: OutboxEvent, OutboxEventRepository (SKIP LOCKED), OutboxWriter,
+                        OutboxPublisher (scheduled relay), OutboxTraceContext (traceparent across the relay)
+claim-service/          Spring Boot 3 / Java 21 — the claim aggregate, accounts and tokens, review queue
   src/main/java/com/kmultan/claims/
-    domain/             Claim aggregate, ClaimStatus state machine, repository port
-    application/        ClaimService — transactional use cases
-    api/                REST controller, DTOs, ProblemDetail error mapping
-    infrastructure/     Postgres-backed adapters
-    infrastructure/outbox/  outbox entity, SKIP LOCKED batch query, Kafka relay
-    infrastructure/consumers/  Kafka reactions to assessment.events / payout.events (idempotent)
-    infrastructure/security/   JWT issue/verify (HS256), SecurityConfig, CurrentUser, demo account seeder
-    domain/auth/            UserAccount, Role
-    infrastructure/assessment/ heuristic fallback AssessmentProvider
-    application/            ClaimService (use cases), ClaimScheduler (SLA escalation, triage timeout), IdempotentConsumer
-  src/main/resources/db/migration/   Flyway migrations (V1 claim … V5 choreography, V6 accounts + claim ownership)
-payout-service/         Spring Boot 3 — saga participant: ledger, stub payment gateway, idempotent consumer, DLQ replay
-  application/          PayoutSaga (one transaction per reaction), own copies of the event envelopes
-  domain/               FundReservation, Payout, ProcessedMessage, PaymentGateway port
-  infrastructure/       outbox (deliberate copy of claim-service's), Kafka listener + DLT, stub gateway
-assessment-service/     FastAPI + Kafka consumer — MobileNetV2 (ONNX) + text model; POST /assess for ad-hoc use; pytest
+    domain/             Claim, ClaimStatus, Severity, ClaimPhoto, ProcessedMessage, events, auth/ (UserAccount, Role)
+    application/        ClaimService (use cases), ClaimTimeoutScheduler (SLA escalation, triage timeout),
+                        IdempotentConsumer, ClaimMetrics, assessment/ (AssessmentProvider port, Assessment)
+    api/                ClaimController, ReviewController, AuthController, ClaimAccessPolicy, ClaimResponseAssembler,
+                        GlobalExceptionHandler, dto/ (one record per file)
+    infrastructure/
+      consumers/        AssessmentEventListener, PayoutEventListener (+ own copies of the event envelopes)
+      kafka/            KafkaTopicConfiguration
+      outbox/           OutboxDomainEventPublisher (domain port -> platform-outbox)
+      redis/            ClaimSubmissionIdempotencyFilter, ClaimSubmissionRateLimitFilter, ClockConfiguration
+      security/         SecurityConfiguration, JwtTokenService, AuthenticatedUser, AuthenticationProperties, DemoAccountSeeder
+      assessment/       HeuristicAssessmentProvider (timeout fallback)
+  src/main/resources/db/migration/   Flyway V1 … V6 (claim, outbox, saga columns, trace context, choreography, accounts)
+payout-service/         Spring Boot 3 — saga participant: PayoutSaga (one transaction per reaction), ledger entities,
+                        ClaimEventListener / PayoutEventListener, StubPaymentGateway, DeadLetterQueueController
+search-service/         Spring Boot 3 — ClaimEventListener -> ClaimDocumentIndexer (claims) + ClaimEventLogIndexer
+                        (claim-events), ClaimSearchService, SearchController, SearchIndexInitializer
+assessment-service/     FastAPI + Kafka consumer — MobileNetV2 (ONNX) + text model; service-account login for photos
+adjuster-console/       Next.js 14 + TypeScript — login, then per role: /claims, /reviews, /finance
 contracts/pacts/        Pact message contract payout-service ⇄ claim-service (consumer-written, provider-verified)
-adjuster-console/       Next.js 14 + TypeScript — review queue with photos, claim/unclaim, approve/reject, failed-payout retry, demo submit with photos
-infra/postgres/         init script creating one database per service
-infra/kibana/           data-view bootstrap for Kibana
-infra/jenkins/          Jenkins image (plugins, JCasC, seed job) for the ci profile
-infra/observability/    Prometheus scrape config, Loki/Tempo configs, Grafana datasources + dashboard
-deploy/helm/            claims-platform chart (services, dev infra, observability); deploy/kind/up.sh
-perf/                   k6 ingestion load test
-Jenkinsfile             same pipeline as GitHub Actions, for a Jenkins agent with Docker
-search-service/         Spring Boot 3 — Kafka consumer -> Elasticsearch projection (claims) + event log (claim-events) + search API
-  projection/           event envelope (own copy), ClaimDocument, external-versioned indexer, listener
-  api/                  GET /api/v1/search (fuzzy multi_match, status filter, paging)
-  config/               DLT error handler, index mapping bootstrap, JSON mapper
-pom.xml                 aggregator only — each service keeps its own Boot parent
+infra/                  postgres init, kibana data views, jenkins image + JCasC, observability configs
+deploy/helm/            claims-platform chart; deploy/kind/up.sh
+perf/                   k6 ingestion load test (perf/run.sh runs it in Docker)
 docker-compose.yml      profiles: core (Postgres, Kafka, Redis, claim/payout/assessment), search (+Kibana), console, observability, ci (Jenkins)
-.github/workflows/      CI: mvn verify with Testcontainers
+Jenkinsfile             same pipeline as GitHub Actions, for a Jenkins agent with Docker
 ```
+
+Conventions: every class name says what the class is (`*Configuration`, `*Listener`, `*Controller`,
+`*Repository`, `*Properties`, `*Policy`, `*Assembler`); one listener per topic, one DTO per file;
+no abbreviations in identifiers (`consumerRecord`, `objectMapper`, `claimService` — not `r`, `json`, `svc`);
+each consumer keeps its own copy of the event envelopes it reads (no shared DTO library), while
+infrastructure that is genuinely identical lives in `platform-commons` / `platform-outbox`.
+Service images build from the repository root (`docker build -f claim-service/Dockerfile .`) because
+of the library modules; Compose and the kind script already do this.
