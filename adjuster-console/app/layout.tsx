@@ -1,13 +1,16 @@
 import type { Metadata } from 'next';
 import type { ReactNode } from 'react';
 import './globals.css';
+import { AuthProvider } from './auth';
 
-export const metadata: Metadata = { title: 'Adjuster console' };
+export const metadata: Metadata = { title: 'Claims console' };
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <html lang="en">
-      <body>{children}</body>
+    <html lang="pl">
+      <body>
+        <AuthProvider>{children}</AuthProvider>
+      </body>
     </html>
   );
 }

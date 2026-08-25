@@ -1,5 +1,6 @@
 export type ClaimStatus = 'SUBMITTED' | 'PENDING_REVIEW' | 'APPROVED' | 'REJECTED' | 'PAID' | 'PAYOUT_FAILED' | 'WITHDRAWN';
 export type Severity = 'MINOR' | 'MODERATE' | 'SEVERE';
+export type Role = 'POLICYHOLDER' | 'ADJUSTER' | 'FINANCE' | 'ADMIN' | 'SERVICE';
 
 /** Mirrors claim-service's ClaimResponse. */
 export interface Claim {
@@ -36,4 +37,17 @@ export interface SubmitClaimRequest {
   incidentDate: string;
   description: string;
   estimatedAmount: number | null;
+}
+
+export interface UserInfo {
+  username: string;
+  displayName: string;
+  roles: Role[];
+}
+
+export interface LoginResponse {
+  accessToken: string;
+  tokenType: string;
+  expiresAt: string;
+  user: UserInfo;
 }

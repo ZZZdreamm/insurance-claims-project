@@ -15,3 +15,13 @@ h2 { font-size: 1.1rem; margin: 1.5rem 0 0.5rem; }
 .small { font-size: 0.75rem; }
 .photos { display: flex; gap: 0.3rem; margin-top: 0.3rem; }
 .photos img { height: 48px; width: 64px; object-fit: cover; border-radius: 4px; border: 1px solid #8884; }
+.topbar { display: flex; justify-content: space-between; align-items: center; gap: 1rem; flex-wrap: wrap; padding-bottom: 0.6rem; border-bottom: 1px solid #8884; margin-bottom: 1rem; }
+.topbar nav a { text-decoration: none; padding: 0.25rem 0.6rem; border-radius: 4px; color: inherit; }
+.topbar nav a.active { background: #8883; font-weight: 600; }
+.login { max-width: 420px; margin: 4rem auto; }
+.card { border: 1px solid #8884; border-radius: 8px; padding: 1rem 1.2rem; display: grid; gap: 0.7rem; margin-bottom: 1.2rem; }
+.card h2 { margin: 0; font-size: 1.05rem; }
+.card label { display: grid; gap: 0.25rem; font-size: 0.85rem; }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0.7rem; }
+.badge.ok { background: #2e7d3233; } .badge.warn { background: #ef6c0033; } .badge.bad { background: #c6282833; }
+textarea { font: inherit; padding: 0.35rem 0.5rem; }
