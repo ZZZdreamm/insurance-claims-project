@@ -80,6 +80,10 @@ public class Claim {
     @Column(name = "escalated_at")
     private Instant escalatedAt;
 
+    /** The policyholder account that submitted the claim (null for claims created before accounts existed). */
+    @Column(name = "owner_id", updatable = false)
+    private UUID ownerId;
+
     @Version
     private long version;
 
@@ -96,8 +100,9 @@ public class Claim {
     }
 
     private Claim(UUID id, String claimNumber, String policyNumber, String plateNumber,
-                  LocalDate incidentDate, String description, BigDecimal estimatedAmount) {
+                  LocalDate incidentDate, String description, BigDecimal estimatedAmount, UUID ownerId) {
         this.id = id;
+        this.ownerId = ownerId;
         this.claimNumber = claimNumber;
         this.policyNumber = policyNumber;
         this.plateNumber = plateNumber;
@@ -109,6 +114,11 @@ public class Claim {
 
     public static Claim submit(String claimNumber, String policyNumber, String plateNumber,
                                LocalDate incidentDate, String description, BigDecimal estimatedAmount) {
+        return submit(claimNumber, policyNumber, plateNumber, incidentDate, description, estimatedAmount, null);
+    }
+
+    public static Claim submit(String claimNumber, String policyNumber, String plateNumber,
+                               LocalDate incidentDate, String description, BigDecimal estimatedAmount, UUID ownerId) {
         if (incidentDate.isAfter(LocalDate.now())) {
             throw new IllegalArgumentException("Incident date cannot be in the future");
         }
@@ -116,7 +126,7 @@ public class Claim {
             throw new IllegalArgumentException("Estimated amount cannot be negative");
         }
         return new Claim(UUID.randomUUID(), claimNumber, policyNumber,
-                plateNumber.toUpperCase().replace(" ", ""), incidentDate, description, estimatedAmount);
+                plateNumber.toUpperCase().replace(" ", ""), incidentDate, description, estimatedAmount, ownerId);
     }
 
     /** Triage result arrived (from assessment-service or the in-process fallback): the claim is ready for a human. */
@@ -225,6 +235,9 @@ public class Claim {
     public String getReviewAssignee() { return reviewAssignee; }
     public Instant getReviewDueAt() { return reviewDueAt; }
     public Instant getEscalatedAt() { return escalatedAt; }
+    public UUID getOwnerId() { return ownerId; }
+
+    public boolean isOwnedBy(UUID userId) { return ownerId != null && ownerId.equals(userId); }
     public long getVersion() { return version; }
     public Instant getCreatedAt() { return createdAt; }
     public Instant getUpdatedAt() { return updatedAt; }

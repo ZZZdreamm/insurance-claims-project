@@ -2,6 +2,9 @@ package com.kmultan.claims.infrastructure.redis;
 
 import com.kmultan.claims.AbstractIntegrationTest;
 import org.junit.jupiter.api.Test;
+import com.kmultan.claims.domain.auth.Role;
+import com.kmultan.claims.infrastructure.security.JwtTokens;
+import com.kmultan.claims.infrastructure.security.TestTokens;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.test.context.TestPropertySource;
@@ -23,6 +26,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class RedisGuardsIT extends AbstractIntegrationTest {
 
     @Autowired MockMvc mvc;
+    @Autowired JwtTokens tokens;
+    private String user() { return TestTokens.bearer(tokens, "anna", Role.POLICYHOLDER); }
 
     private static final String VALID = """
             {"policyNumber":"POL-RD","plateNumber":"RD 1","incidentDate":"%s",
@@ -32,13 +37,13 @@ class RedisGuardsIT extends AbstractIntegrationTest {
     @Test
     void sameIdempotencyKeyReplaysTheFirstClaim() throws Exception {
         String key = "mobile-" + UUID.randomUUID();
-        String first = mvc.perform(post("/api/v1/claims").header("X-Client-Id", "idem-test").header("Idempotency-Key", key)
+        String first = mvc.perform(post("/api/v1/claims").header("Authorization", user()).header("X-Client-Id", "idem-test").header("Idempotency-Key", key)
                         .contentType(APPLICATION_JSON).content(VALID))
                 .andExpect(status().isCreated())
                 .andReturn().getResponse().getContentAsString();
         String id = first.replaceAll(".*\"id\":\"([^\"]+)\".*", "$1");
 
-        mvc.perform(post("/api/v1/claims").header("X-Client-Id", "idem-test").header("Idempotency-Key", key)
+        mvc.perform(post("/api/v1/claims").header("Authorization", user()).header("X-Client-Id", "idem-test").header("Idempotency-Key", key)
                         .contentType(APPLICATION_JSON).content(VALID))
                 .andExpect(status().isOk())
                 .andExpect(header().string("Idempotent-Replayed", "true"))
@@ -46,7 +51,7 @@ class RedisGuardsIT extends AbstractIntegrationTest {
                 .andExpect(jsonPath("$.id").value(id));
 
         // a different key is a different submission
-        String second = mvc.perform(post("/api/v1/claims").header("X-Client-Id", "idem-test").header("Idempotency-Key", "mobile-" + UUID.randomUUID())
+        String second = mvc.perform(post("/api/v1/claims").header("Authorization", user()).header("X-Client-Id", "idem-test").header("Idempotency-Key", "mobile-" + UUID.randomUUID())
                         .contentType(APPLICATION_JSON).content(VALID))
                 .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString();
         assertThat(second.replaceAll(".*\"id\":\"([^\"]+)\".*", "$1")).isNotEqualTo(id);
@@ -55,13 +60,13 @@ class RedisGuardsIT extends AbstractIntegrationTest {
     @Test
     void failedSubmissionDoesNotBurnTheKey() throws Exception {
         String key = "mobile-" + UUID.randomUUID();
-        mvc.perform(post("/api/v1/claims").header("X-Client-Id", "idem-test2").header("Idempotency-Key", key)
+        mvc.perform(post("/api/v1/claims").header("Authorization", user()).header("X-Client-Id", "idem-test2").header("Idempotency-Key", key)
                         .contentType(APPLICATION_JSON).content("{\"policyNumber\":\"\"}"))
                 .andExpect(status().isBadRequest());
-        mvc.perform(post("/api/v1/claims").header("X-Client-Id", "idem-test2").header("Idempotency-Key", key)
+        mvc.perform(post("/api/v1/claims").header("Authorization", user()).header("X-Client-Id", "idem-test2").header("Idempotency-Key", key)
                         .contentType(APPLICATION_JSON).content(VALID))
                 .andExpect(status().isCreated());
-        mvc.perform(post("/api/v1/claims").header("X-Client-Id", "idem-test2").header("Idempotency-Key", "bad key!").contentType(APPLICATION_JSON).content(VALID))
+        mvc.perform(post("/api/v1/claims").header("Authorization", user()).header("X-Client-Id", "idem-test2").header("Idempotency-Key", "bad key!").contentType(APPLICATION_JSON).content(VALID))
                 .andExpect(status().isBadRequest());
     }
 
@@ -69,16 +74,16 @@ class RedisGuardsIT extends AbstractIntegrationTest {
     void submissionsAreRateLimitedPerClient() throws Exception {
         String client = "burst-" + UUID.randomUUID();
         for (int i = 0; i < 5; i++) {
-            mvc.perform(post("/api/v1/claims").header("X-Client-Id", client).contentType(APPLICATION_JSON).content(VALID))
+            mvc.perform(post("/api/v1/claims").header("Authorization", user()).header("X-Client-Id", client).contentType(APPLICATION_JSON).content(VALID))
                     .andExpect(status().isCreated())
                     .andExpect(header().string("X-RateLimit-Remaining", Integer.toString(4 - i)));
         }
-        mvc.perform(post("/api/v1/claims").header("X-Client-Id", client).contentType(APPLICATION_JSON).content(VALID))
+        mvc.perform(post("/api/v1/claims").header("Authorization", user()).header("X-Client-Id", client).contentType(APPLICATION_JSON).content(VALID))
                 .andExpect(status().isTooManyRequests())
                 .andExpect(header().exists("Retry-After"))
                 .andExpect(jsonPath("$.title").value("Too many submissions"));
         // other clients are unaffected
-        mvc.perform(post("/api/v1/claims").header("X-Client-Id", "other-" + UUID.randomUUID()).contentType(APPLICATION_JSON).content(VALID))
+        mvc.perform(post("/api/v1/claims").header("Authorization", user()).header("X-Client-Id", "other-" + UUID.randomUUID()).contentType(APPLICATION_JSON).content(VALID))
                 .andExpect(status().isCreated());
     }
 }

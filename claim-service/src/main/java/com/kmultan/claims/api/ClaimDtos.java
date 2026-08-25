@@ -30,7 +30,6 @@ public final class ClaimDtos {
             @DecimalMin("0.00") BigDecimal estimatedAmount
     ) {}
 
-    public record ClaimReviewRequest(@NotBlank @Size(max = 64) String assignee) {}
     public record ApproveRequest(@NotNull @Positive BigDecimal approvedAmount) {}
     public record RejectRequest(@NotBlank @Size(max = 1000) String reason) {}
     public record RetryPayoutRequest(@Positive BigDecimal approvedAmount) {}

@@ -70,7 +70,12 @@ public class ClaimService {
 
     public Claim submit(String policyNumber, String plateNumber, LocalDate incidentDate,
                         String description, BigDecimal estimatedAmount, List<Photo> uploadedPhotos) {
-        Claim claim = Claim.submit(claimNumbers.next(), policyNumber, plateNumber, incidentDate, description, estimatedAmount);
+        return submit(policyNumber, plateNumber, incidentDate, description, estimatedAmount, uploadedPhotos, null);
+    }
+
+    public Claim submit(String policyNumber, String plateNumber, LocalDate incidentDate,
+                        String description, BigDecimal estimatedAmount, List<Photo> uploadedPhotos, UUID ownerId) {
+        Claim claim = Claim.submit(claimNumbers.next(), policyNumber, plateNumber, incidentDate, description, estimatedAmount, ownerId);
         claims.save(claim);
         for (Photo p : uploadedPhotos) {
             photos.save(new ClaimPhoto(claim.getId(), p.contentType(), p.data()));
@@ -88,6 +93,11 @@ public class ClaimService {
     @Transactional(readOnly = true)
     public Page<Claim> list(ClaimStatus status, Pageable pageable) {
         return status == null ? claims.findAll(pageable) : claims.findByStatus(status, pageable);
+    }
+
+    @Transactional(readOnly = true)
+    public Page<Claim> listOwnedBy(UUID ownerId, ClaimStatus status, Pageable pageable) {
+        return status == null ? claims.findByOwnerId(ownerId, pageable) : claims.findByOwnerIdAndStatus(ownerId, status, pageable);
     }
 
     @Transactional(readOnly = true)

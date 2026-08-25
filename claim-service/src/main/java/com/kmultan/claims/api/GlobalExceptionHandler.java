@@ -5,6 +5,7 @@ import com.kmultan.claims.domain.InvalidStateTransitionException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -18,6 +19,11 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(ClaimNotFoundException.class)
     ProblemDetail notFound(ClaimNotFoundException e) {
         return problem(HttpStatus.NOT_FOUND, "Claim not found", e.getMessage());
+    }
+
+    @ExceptionHandler(AccessDeniedException.class)
+    ProblemDetail forbidden(AccessDeniedException e) {
+        return problem(HttpStatus.FORBIDDEN, "Forbidden", e.getMessage());
     }
 
     @ExceptionHandler(IllegalStateException.class)

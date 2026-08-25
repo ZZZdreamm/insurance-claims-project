@@ -3,6 +3,9 @@ package com.kmultan.claims.api;
 import com.kmultan.claims.AbstractIntegrationTest;
 import com.kmultan.claims.domain.Claim;
 import com.kmultan.claims.domain.ClaimRepository;
+import com.kmultan.claims.domain.auth.Role;
+import com.kmultan.claims.infrastructure.security.JwtTokens;
+import com.kmultan.claims.infrastructure.security.TestTokens;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -34,6 +37,11 @@ class ClaimControllerIT extends AbstractIntegrationTest {
     @Autowired MockMvc mvc;
     @Autowired ClaimRepository repository;
     @Autowired TransactionTemplate tx;
+    @Autowired JwtTokens tokens;
+
+    private String user() { return TestTokens.bearer(tokens, "anna", Role.POLICYHOLDER); }
+    private String adjuster() { return TestTokens.bearer(tokens, "alice", Role.ADJUSTER); }
+    private String finance() { return TestTokens.bearer(tokens, "finance", Role.FINANCE); }
 
     private static final String VALID = """
             {"policyNumber":"POL-123","plateNumber":"WA 12345","incidentDate":"%s",
@@ -46,7 +54,7 @@ class ClaimControllerIT extends AbstractIntegrationTest {
 
     @Test
     void submitReturns201WithGeneratedClaimNumber() throws Exception {
-        mvc.perform(post("/api/v1/claims").contentType(APPLICATION_JSON).content(VALID))
+        mvc.perform(post("/api/v1/claims").header("Authorization", user()).contentType(APPLICATION_JSON).content(VALID))
                 .andExpect(status().isCreated())
                 .andExpect(header().exists("Location"))
                 .andExpect(jsonPath("$.claimNumber").value(org.hamcrest.Matchers.matchesPattern("CLM-\\d{4}-\\d{6}")))
@@ -61,27 +69,29 @@ class ClaimControllerIT extends AbstractIntegrationTest {
         String body = mvc.perform(multipart("/api/v1/claims")
                         .file(new MockMultipartFile("claim", "", "application/json", VALID.getBytes()))
                         .file(new MockMultipartFile("photos", "front.png", "image/png", png))
-                        .file(new MockMultipartFile("photos", "side.jpg", "image/jpeg", new byte[]{1, 2, 3})))
+                        .file(new MockMultipartFile("photos", "side.jpg", "image/jpeg", new byte[]{1, 2, 3}))
+                        .header("Authorization", user()))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.photoIds.length()").value(2))
                 .andReturn().getResponse().getContentAsString();
         String id = idOf(body);
         String photoId = body.replaceAll(".*\"photoIds\":\\[\"([^\"]+)\".*", "$1");
 
-        mvc.perform(get("/api/v1/claims/{id}/photos/{p}", id, photoId))
+        mvc.perform(get("/api/v1/claims/{id}/photos/{p}", id, photoId).header("Authorization", user()))
                 .andExpect(status().isOk())
                 .andExpect(header().string("Content-Type", "image/png"))
                 .andExpect(content().bytes(png));
 
         mvc.perform(multipart("/api/v1/claims")
                         .file(new MockMultipartFile("claim", "", "application/json", VALID.getBytes()))
-                        .file(new MockMultipartFile("photos", "doc.pdf", "application/pdf", new byte[]{1})))
+                        .file(new MockMultipartFile("photos", "doc.pdf", "application/pdf", new byte[]{1}))
+                        .header("Authorization", user()))
                 .andExpect(status().isUnprocessableEntity());
     }
 
     @Test
     void validationErrorsAreProblemDetails() throws Exception {
-        mvc.perform(post("/api/v1/claims").contentType(APPLICATION_JSON)
+        mvc.perform(post("/api/v1/claims").header("Authorization", user()).contentType(APPLICATION_JSON)
                         .content("{\"policyNumber\":\"\",\"plateNumber\":\"!!\",\"incidentDate\":\"2999-01-01\",\"description\":\"short\"}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.title").value("Validation failed"))
@@ -90,7 +100,7 @@ class ClaimControllerIT extends AbstractIntegrationTest {
 
     @Test
     void unknownClaimIs404() throws Exception {
-        mvc.perform(get("/api/v1/claims/{id}", UUID.randomUUID()))
+        mvc.perform(get("/api/v1/claims/{id}", UUID.randomUUID()).header("Authorization", adjuster()))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.title").value("Claim not found"));
     }
@@ -98,38 +108,38 @@ class ClaimControllerIT extends AbstractIntegrationTest {
     @Test
     void illegalTransitionIs409() throws Exception {
         Claim c = tx.execute(s -> repository.save(Claim.submit("CLM-T-1", "P", "X1", LocalDate.now(), "desc desc desc", null)));
-        mvc.perform(post("/api/v1/reviews/{id}/approve", c.getId()).contentType(APPLICATION_JSON).content("{\"approvedAmount\":100}"))
+        mvc.perform(post("/api/v1/reviews/{id}/approve", c.getId()).header("Authorization", TestTokens.bearer(tokens, "admin", Role.ADMIN)).contentType(APPLICATION_JSON).content("{\"approvedAmount\":100}"))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.title").value("Invalid state transition"));
-        mvc.perform(post("/api/v1/claims/{id}/retry-payout", c.getId()))
+        mvc.perform(post("/api/v1/claims/{id}/retry-payout", c.getId()).header("Authorization", finance()))
                 .andExpect(status().isConflict());
     }
 
     @Test
     void fullLifecycleThroughApi() throws Exception {
-        String id = idOf(mvc.perform(post("/api/v1/claims").contentType(APPLICATION_JSON).content(VALID))
+        String id = idOf(mvc.perform(post("/api/v1/claims").header("Authorization", user()).contentType(APPLICATION_JSON).content(VALID))
                 .andReturn().getResponse().getContentAsString());
 
         // assessment-service (fake) reacts to CLAIM_SUBMITTED; the claim shows up in the review queue
         await().atMost(Duration.ofSeconds(20)).untilAsserted(() ->
-                mvc.perform(get("/api/v1/reviews")).andExpect(jsonPath("$[?(@.id == '" + id + "')].severity").value("MODERATE")));
-        mvc.perform(get("/api/v1/claims").param("status", "PENDING_REVIEW"))
+                mvc.perform(get("/api/v1/reviews").header("Authorization", adjuster())).andExpect(jsonPath("$[?(@.id == '" + id + "')].severity").value("MODERATE")));
+        mvc.perform(get("/api/v1/claims").header("Authorization", adjuster()).param("status", "PENDING_REVIEW"))
                 .andExpect(jsonPath("$.content[?(@.id == '" + id + "')]").exists());
 
-        mvc.perform(post("/api/v1/reviews/{id}/claim", id).contentType(APPLICATION_JSON).content("{\"assignee\":\"alice\"}"))
+        mvc.perform(post("/api/v1/reviews/{id}/claim", id).header("Authorization", adjuster()))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.reviewAssignee").value("alice"));
-        mvc.perform(post("/api/v1/reviews/{id}/claim", id).contentType(APPLICATION_JSON).content("{\"assignee\":\"bob\"}"))
+        mvc.perform(post("/api/v1/reviews/{id}/claim", id).header("Authorization", TestTokens.bearer(tokens, "bob", Role.ADJUSTER)))
                 .andExpect(status().isConflict());
-        mvc.perform(post("/api/v1/reviews/{id}/approve", id).contentType(APPLICATION_JSON).content("{\"approvedAmount\":2000.99}"))
+        mvc.perform(post("/api/v1/reviews/{id}/approve", id).header("Authorization", adjuster()).contentType(APPLICATION_JSON).content("{\"approvedAmount\":2000.99}"))
                 .andExpect(jsonPath("$.status").value("APPROVED"));
 
         // payout-service (fake) fails on .99 -> PAYOUT_FAILED -> retry with corrected amount -> PAID
         await().atMost(Duration.ofSeconds(30)).untilAsserted(() ->
-                mvc.perform(get("/api/v1/claims/{id}", id)).andExpect(jsonPath("$.status").value("PAYOUT_FAILED")));
-        mvc.perform(post("/api/v1/claims/{id}/retry-payout", id).contentType(APPLICATION_JSON).content("{\"approvedAmount\":2001}"))
+                mvc.perform(get("/api/v1/claims/{id}", id).header("Authorization", user())).andExpect(jsonPath("$.status").value("PAYOUT_FAILED")));
+        mvc.perform(post("/api/v1/claims/{id}/retry-payout", id).header("Authorization", finance()).contentType(APPLICATION_JSON).content("{\"approvedAmount\":2001}"))
                 .andExpect(jsonPath("$.status").value("APPROVED"));
         await().atMost(Duration.ofSeconds(30)).untilAsserted(() ->
-                mvc.perform(get("/api/v1/claims/{id}", id)).andExpect(jsonPath("$.status").value("PAID")));
+                mvc.perform(get("/api/v1/claims/{id}", id).header("Authorization", user())).andExpect(jsonPath("$.status").value("PAID")));
     }
 
     @Test
