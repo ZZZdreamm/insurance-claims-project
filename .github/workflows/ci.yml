@@ -4,6 +4,12 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
+    inputs:
+      perf:
+        description: "also run the Testcontainers performance ITs (mvn verify -Dperf)"
+        type: boolean
+        default: false
 
 jobs:
   build:
@@ -16,7 +22,7 @@ jobs:
           java-version: "21"
           cache: maven
       - name: Build and test
-        run: mvn -B verify
+        run: mvn -B verify ${{ inputs.perf && '-Dperf' || '' }}
       - name: Upload test reports
         if: always()
         uses: actions/upload-artifact@v4

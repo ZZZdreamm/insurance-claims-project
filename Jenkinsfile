@@ -4,6 +4,7 @@
 pipeline {
   agent none
   options { timestamps(); timeout(time: 60, unit: 'MINUTES'); disableConcurrentBuilds() }
+  parameters { booleanParam(name: 'PERF', defaultValue: false, description: 'Also run the Testcontainers performance ITs (mvn verify -Dperf)') }
   environment {
     DOCKER_SOCK = '-v /var/run/docker.sock:/var/run/docker.sock'
     TESTCONTAINERS_HOST_OVERRIDE = 'host.docker.internal'   // agents are containers: containers they start must be addressed via the host

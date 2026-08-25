@@ -168,6 +168,7 @@ curl -s 'localhost:8081/api/v1/search?q=wa12354&status=SUBMITTED' | jq   # note 
 ```bash
 mvn verify              # all modules: unit + Testcontainers integration tests (needs Docker)
 mvn verify -DskipITs    # unit tests only
+mvn verify -Dperf       # additionally the performance ITs (tag `perf`, excluded by default)
 ```
 
 ```bash
@@ -185,6 +186,43 @@ heuristic fallback). payout-service ITs prove a redelivered event is handled onc
 is compensated and can be retried, an unaccepted payout is reversed, and a poison message lands on
 the DLT and can be replayed. A **Pact message contract** (`contracts/pacts`) is written by
 payout-service's consumer test and verified against claim-service's real serialiser.
+
+Guards and failure modes have their own ITs: `RedisGuardsIT` (idempotent replay, a failed request
+does not burn the key, per-client limit with `Retry-After`, **window rollover with an injected
+`Clock`**, a 40-request concurrent burst lets exactly 5 through — `INCR` is atomic — and 10 concurrent
+requests with one `Idempotency-Key` create exactly one claim — `SET NX` is atomic); `SecurityIT`
+(login, 401/403, ownership, review held by the caller, expired / forged / payload-tampered tokens);
+`OutboxResilienceIT` (**Kafka container paused** mid-run: writes keep succeeding, nothing is published,
+everything is relayed in order once the broker is unpaused and the choreography resumes).
+
+### Performance
+
+Two kinds, both against real infrastructure. Numbers below are from one run on a laptop under
+Docker Desktop/WSL2 (Aug 2026); they are a baseline to compare before/after a change, not a claim
+about production capacity.
+
+**Testcontainers perf ITs** (`mvn verify -Dperf`; loose assertions, printed as `PERF` lines):
+
+| Scenario | Result |
+|---|---|
+| `POST /api/v1/claims`, 20 threads × 25, MockMvc, real Postgres + Redis | p50 49 ms · p95 146 ms · p99 465 ms · 273 req/s |
+| Outbox relay after that burst (poll 1 s, batch 100) | 500+ events drained in ~10 s |
+| Choreography: 50 claims submitted → `PENDING_REVIEW` (2 Kafka hops each) | 1.2 s (40 claims/s) |
+| payout-service: 200 `CLAIM_APPROVED`, **each delivered twice** | exactly 200 payouts, 2 saga steps each, 5.4 s (37 payouts/s) |
+| search-service: 300 events → searchable | 7.2 s incl. ES refresh; fuzzy search p50 8 ms · p95 17 ms · p99 28 ms |
+
+**k6 against the running Compose stack** (`perf/run.sh`, k6 in Docker, 20 VUs, 30 s, logs in as a
+policyholder, one rate-limit bucket per VU; run claim-service with `RATE_LIMIT_SUBMIT_PER_MINUTE=1000000`
+for the duration, as the script's header explains):
+
+| Metric | Value |
+|---|---|
+| requests | 4 981 in 30 s, **164 req/s** at 20 VUs with 100 ms think time |
+| submit latency | avg 19.8 ms · p50 13.5 ms · p90 30.5 ms · **p95 39.5 ms** · max 428 ms |
+| failures / rate-limited | 0 / 0 (thresholds `p(95)<300`, `failed<1%` pass) |
+
+Every submit above went through the Redis idempotency + rate-limit filters, JWT verification, Bean
+Validation, a Postgres transaction with the outbox row, and was later relayed to Kafka and triaged.
 
 ## Design decisions
 
