@@ -7,6 +7,15 @@ stringData:
   password: {{ .Values.infra.postgres.password | quote }}
 ---
 apiVersion: v1
+kind: Secret
+metadata:
+  name: auth-secrets
+type: Opaque
+stringData:
+  jwt-secret: {{ .Values.auth.jwtSecret | quote }}
+  service-account-password: {{ .Values.auth.serviceAccountPassword | quote }}
+---
+apiVersion: v1
 kind: ConfigMap
 metadata:
   name: postgres-init

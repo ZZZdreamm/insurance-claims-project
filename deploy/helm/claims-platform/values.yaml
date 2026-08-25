@@ -47,6 +47,7 @@ services:
     env:
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       CLAIM_SERVICE_URL: http://claim-service:8080
+      SERVICE_ACCOUNT_USERNAME: assessment-service
       OTEL_EXPORTER_OTLP_ENDPOINT: http://tempo:4318
     resources: { requests: { cpu: 100m, memory: 256Mi }, limits: { memory: 384Mi } }
     health: /health
@@ -60,6 +61,10 @@ services:
     health: /
 
 javaOpts: "-XX:TieredStopAtLevel=1 -XX:+UseSerialGC -Xmx256m"
+
+auth:
+  jwtSecret: dev-only-secret-change-me-please-32-bytes-minimum   # >= 32 bytes; override with --set auth.jwtSecret=...
+  serviceAccountPassword: assessment-secret
 
 # Dev-grade infrastructure: single replicas, emptyDir storage. For anything beyond a demo
 # cluster use the operators/charts (CloudNativePG, Strimzi, ECK) — deliberately not vendored here.

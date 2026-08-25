@@ -30,6 +30,14 @@ spec:
             {{- if hasPrefix "/actuator" $svc.health }}
             - name: JAVA_TOOL_OPTIONS
               value: {{ $.Values.javaOpts | quote }}
+            - name: AUTH_JWT_SECRET
+              valueFrom:
+                secretKeyRef: { name: auth-secrets, key: jwt-secret }
+            {{- end }}
+            {{- if or (eq $name "claim-service") (eq $name "assessment-service") }}
+            - name: SERVICE_ACCOUNT_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: auth-secrets, key: service-account-password }
             - name: SPRING_DATASOURCE_USERNAME
               value: {{ $.Values.infra.postgres.user }}
             - name: SPRING_DATASOURCE_PASSWORD

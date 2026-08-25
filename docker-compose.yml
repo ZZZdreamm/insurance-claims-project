@@ -85,6 +85,8 @@ services:
       redis:
         condition: service_healthy
     environment:
+      SERVICE_ACCOUNT_PASSWORD: ${SERVICE_ACCOUNT_PASSWORD:-assessment-secret}
+      AUTH_JWT_SECRET: ${AUTH_JWT_SECRET:-dev-only-secret-change-me-please-32-bytes-minimum}
       SPRING_DATA_REDIS_HOST: redis
       LOKI_URL: ${LOKI_URL:-}
       OTEL_EXPORTER_OTLP_ENDPOINT: http://tempo:4318
@@ -111,6 +113,7 @@ services:
       kafka:
         condition: service_started
     environment:
+      AUTH_JWT_SECRET: ${AUTH_JWT_SECRET:-dev-only-secret-change-me-please-32-bytes-minimum}
       LOKI_URL: ${LOKI_URL:-}
       OTEL_EXPORTER_OTLP_ENDPOINT: http://tempo:4318
       TRACING_ENABLED: ${TRACING_ENABLED:-false}
@@ -136,6 +139,8 @@ services:
     environment:
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       CLAIM_SERVICE_URL: http://claim-service:8080
+      SERVICE_ACCOUNT_USERNAME: assessment-service
+      SERVICE_ACCOUNT_PASSWORD: ${SERVICE_ACCOUNT_PASSWORD:-assessment-secret}
       OTEL_EXPORTER_OTLP_ENDPOINT: ${ASSESSMENT_OTEL_ENDPOINT:-}
     ports:
       - "8000:8000"
@@ -216,6 +221,7 @@ services:
       kafka:
         condition: service_started
     environment:
+      AUTH_JWT_SECRET: ${AUTH_JWT_SECRET:-dev-only-secret-change-me-please-32-bytes-minimum}
       LOKI_URL: ${LOKI_URL:-}
       OTEL_EXPORTER_OTLP_ENDPOINT: http://tempo:4318
       TRACING_ENABLED: ${TRACING_ENABLED:-false}

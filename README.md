@@ -51,7 +51,7 @@ docker compose --profile core up -d --build
 # add Elasticsearch + search-service
 docker compose --profile core --profile search up -d --build
 
-# add the adjuster console (http://localhost:3000)
+# add the console (http://localhost:3000): log in as anna / alice / finance / admin (password = username)
 docker compose --profile core --profile console up -d --build
 
 # search profile also brings Kibana (http://localhost:5601) with data views over the claims indices
@@ -109,16 +109,25 @@ docker compose --profile core up -d postgres kafka
 cd claim-service && SPRING_KAFKA_BOOTSTRAP_SERVERS=localhost:29092 mvn spring-boot:run -Dspring-boot.run.profiles=dev
 ```
 
-Submit a claim (JSON, or multipart with photos). `Idempotency-Key` makes a client retry safe;
-submissions are rate-limited per client (`X-Client-Id`, else IP) — `429` + `Retry-After`:
+Every `/api/**` call needs a bearer token. claim-service issues them itself (HS256, secret shared
+with the other services via `AUTH_JWT_SECRET`); demo accounts are seeded on a fresh database
+(password = username): `anna`, `marek` (policyholders), `alice`, `bob` (adjusters), `finance`, `admin`.
 
 ```bash
-curl -s -X POST localhost:8080/api/v1/claims -H 'Content-Type: application/json' \
+TOKEN=$(curl -s -X POST localhost:8080/api/v1/auth/login -H 'Content-Type: application/json' \
+        -d '{"username":"anna","password":"anna"}' | jq -r .accessToken)
+```
+
+Submit a claim as a policyholder (JSON, or multipart with photos). `Idempotency-Key` makes a client
+retry safe; submissions are rate-limited per client (`X-Client-Id`, else IP) — `429` + `Retry-After`:
+
+```bash
+curl -s -X POST localhost:8080/api/v1/claims -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
   -H "Idempotency-Key: $(uuidgen)" -H 'X-Client-Id: demo' -d '{
   "policyNumber": "POL-123", "plateNumber": "WA 12345", "incidentDate": "2026-08-20",
   "description": "Rear-ended at a red light, bumper and tail light damaged", "estimatedAmount": 2500.00 }' | jq
 
-curl -s -X POST localhost:8080/api/v1/claims \
+curl -s -X POST localhost:8080/api/v1/claims -H "Authorization: Bearer $TOKEN" \
   -F 'claim={"policyNumber":"POL-123","plateNumber":"WA 12345","incidentDate":"2026-08-20","description":"Front end crushed, airbags deployed","estimatedAmount":9000};type=application/json' \
   -F photos=@front.jpg -F photos=@side.jpg | jq
 ```
@@ -127,12 +136,23 @@ assessment-service reacts to `CLAIM_SUBMITTED`, fetches the photos, runs MobileN
 and publishes `ASSESSMENT_COMPLETED`; the claim then shows up in the review queue:
 
 ```bash
-curl -s localhost:8080/api/v1/reviews | jq                       # PENDING_REVIEW claims, severity, due date, photos
-curl -s -X POST localhost:8080/api/v1/reviews/$ID/claim -H 'Content-Type: application/json' -d '{"assignee":"alice"}'
-curl -s -X POST localhost:8080/api/v1/reviews/$ID/approve -H 'Content-Type: application/json' -d '{"approvedAmount":2000}'
-curl -s -X POST localhost:8080/api/v1/reviews/$ID/reject  -H 'Content-Type: application/json' -d '{"reason":"..."}'
-curl -s -X POST localhost:8080/api/v1/claims/$ID/retry-payout -H 'Content-Type: application/json' -d '{"approvedAmount":2001}'
+# as alice (ADJUSTER): the assignee is always the caller; only the holder can decide
+curl -s localhost:8080/api/v1/reviews -H "Authorization: Bearer $ALICE" | jq
+curl -s -X POST localhost:8080/api/v1/reviews/$ID/claim   -H "Authorization: Bearer $ALICE"
+curl -s -X POST localhost:8080/api/v1/reviews/$ID/approve -H "Authorization: Bearer $ALICE" -H 'Content-Type: application/json' -d '{"approvedAmount":2000}'
+# as finance (FINANCE): retry a failed payout
+curl -s -X POST localhost:8080/api/v1/claims/$ID/retry-payout -H "Authorization: Bearer $FINANCE" -H 'Content-Type: application/json' -d '{"approvedAmount":2001}'
 ```
+
+| Role | Can |
+|---|---|
+| `POLICYHOLDER` | submit claims; read, list and withdraw **own** claims only |
+| `ADJUSTER` | read all claims; review queue: claim/unclaim, approve/reject what they hold; withdraw |
+| `FINANCE` | read all claims; retry failed payouts; replay dead letters (`payout-service`); search |
+| `ADMIN` | everything |
+| `SERVICE` | machine accounts — `assessment-service` signs in to read photos |
+
+Anonymous → `401`, wrong role or someone else's claim → `403`, both as `application/problem+json`.
 
 Illegal transitions return `409` as RFC 9457 `application/problem+json`.
 Health and metrics: `/actuator/health`, `/actuator/prometheus`.
@@ -223,6 +243,9 @@ payout-service's consumer test and verified against claim-service's real seriali
 ## What I deliberately left out, and why
 
 - **MongoDB** — Postgres `jsonb` stores model-extraction output fine; a second datastore was not justified.
+- **Keycloak / an external IdP** — the platform issues its own JWTs. For a single-team demo an
+  OIDC server is another ~400 MB and a second source of truth for accounts; the tokens here are
+  standard JWTs, so swapping the issuer for Keycloak later changes `JwtTokens` and the login page only.
 - **Paid LLM APIs and heavyweight ML runtimes** — triage is ImageNet MobileNetV2 on ONNX Runtime
   (no torch, ~15 ms per image on CPU) plus a text model; deterministic, so tests stay deterministic.
 - **A process engine (Camunda)** — the first version used embedded Camunda 7 for the review task and
@@ -241,9 +264,11 @@ claim-service/          Spring Boot 3 / Java 21 — the claim aggregate
     infrastructure/     Postgres-backed adapters
     infrastructure/outbox/  outbox entity, SKIP LOCKED batch query, Kafka relay
     infrastructure/consumers/  Kafka reactions to assessment.events / payout.events (idempotent)
+    infrastructure/security/   JWT issue/verify (HS256), SecurityConfig, CurrentUser, demo account seeder
+    domain/auth/            UserAccount, Role
     infrastructure/assessment/ heuristic fallback AssessmentProvider
     application/            ClaimService (use cases), ClaimScheduler (SLA escalation, triage timeout), IdempotentConsumer
-  src/main/resources/db/migration/   Flyway migrations (V1 claim … V5 choreography: review/triage columns, photos, inbox)
+  src/main/resources/db/migration/   Flyway migrations (V1 claim … V5 choreography, V6 accounts + claim ownership)
 payout-service/         Spring Boot 3 — saga participant: ledger, stub payment gateway, idempotent consumer, DLQ replay
   application/          PayoutSaga (one transaction per reaction), own copies of the event envelopes
   domain/               FundReservation, Payout, ProcessedMessage, PaymentGateway port
