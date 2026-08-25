@@ -12,6 +12,8 @@
   <!-- Aggregator only. Each service keeps its own Spring Boot parent and is
        independently buildable/deployable; this just lets `mvn verify` run everything. -->
   <modules>
+    <module>platform-commons</module>
+    <module>platform-outbox</module>
     <module>claim-service</module>
     <module>search-service</module>
     <module>payout-service</module>
