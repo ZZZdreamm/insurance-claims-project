@@ -7,11 +7,18 @@ import com.kmultan.claims.infrastructure.security.JwtTokens;
 import com.kmultan.claims.infrastructure.security.TestTokens;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
+import org.springframework.context.annotation.Import;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.time.LocalDate;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.http.MediaType.APPLICATION_JSON;
@@ -22,10 +29,12 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 /** Real Redis: client retries with the same Idempotency-Key never create a second claim; runaway clients get 429. */
 @AutoConfigureMockMvc
+@Import(MutableClockConfig.class)
 @TestPropertySource(properties = "claims.ratelimit.submit-per-minute=5")
 class RedisGuardsIT extends AbstractIntegrationTest {
 
     @Autowired MockMvc mvc;
+    @Autowired MutableClockConfig.MutableClock clock;
     @Autowired JwtTokens tokens;
     private String user() { return TestTokens.bearer(tokens, "anna", Role.POLICYHOLDER); }
 
@@ -85,5 +94,76 @@ class RedisGuardsIT extends AbstractIntegrationTest {
         // other clients are unaffected
         mvc.perform(post("/api/v1/claims").header("Authorization", user()).header("X-Client-Id", "other-" + UUID.randomUUID()).contentType(APPLICATION_JSON).content(VALID))
                 .andExpect(status().isCreated());
+    }
+
+    @Test
+    void limitResetsWhenTheWindowRollsOver() throws Exception {
+        String client = "window-" + UUID.randomUUID();
+        for (int i = 0; i < 5; i++) {
+            mvc.perform(post("/api/v1/claims").header("Authorization", user()).header("X-Client-Id", client).contentType(APPLICATION_JSON).content(VALID))
+                    .andExpect(status().isCreated());
+        }
+        mvc.perform(post("/api/v1/claims").header("Authorization", user()).header("X-Client-Id", client).contentType(APPLICATION_JSON).content(VALID))
+                .andExpect(status().isTooManyRequests());
+
+        clock.advanceSeconds(60);   // next fixed window
+        mvc.perform(post("/api/v1/claims").header("Authorization", user()).header("X-Client-Id", client).contentType(APPLICATION_JSON).content(VALID))
+                .andExpect(status().isCreated())
+                .andExpect(header().string("X-RateLimit-Remaining", "4"));
+    }
+
+    /** INCR is atomic: a burst of concurrent requests can never let more than the limit through. */
+    @Test
+    void concurrentBurstNeverExceedsTheLimit() throws Exception {
+        String client = "burst-parallel-" + UUID.randomUUID();
+        String bearer = user();
+        ExecutorService pool = Executors.newFixedThreadPool(20);
+        try {
+            List<Future<Integer>> results = new ArrayList<>();
+            for (int i = 0; i < 40; i++) {
+                results.add(pool.submit((Callable<Integer>) () ->
+                        mvc.perform(post("/api/v1/claims").header("Authorization", bearer).header("X-Client-Id", client)
+                                .contentType(APPLICATION_JSON).content(VALID)).andReturn().getResponse().getStatus()));
+            }
+            long created = 0, limited = 0;
+            for (Future<Integer> f : results) {
+                int code = f.get();
+                if (code == 201) created++; else if (code == 429) limited++; else throw new AssertionError("unexpected " + code);
+            }
+            assertThat(created).isEqualTo(5);
+            assertThat(limited).isEqualTo(35);
+        } finally {
+            pool.shutdownNow();
+        }
+    }
+
+    /** SET NX is atomic: concurrent retries with one Idempotency-Key produce exactly one claim. */
+    @Test
+    void concurrentRequestsWithSameIdempotencyKeyCreateOneClaim() throws Exception {
+        String key = "parallel-" + UUID.randomUUID();
+        String bearer = user();
+        ExecutorService pool = Executors.newFixedThreadPool(10);
+        try {
+            List<Future<Integer>> results = new ArrayList<>();
+            for (int i = 0; i < 10; i++) {
+                String client = "idem-par-" + i;   // separate rate-limit buckets: only idempotency is under test
+                results.add(pool.submit((Callable<Integer>) () ->
+                        mvc.perform(post("/api/v1/claims").header("Authorization", bearer).header("X-Client-Id", client).header("Idempotency-Key", key)
+                                .contentType(APPLICATION_JSON).content(VALID)).andReturn().getResponse().getStatus()));
+            }
+            long created = 0, replayedOrInProgress = 0;
+            for (Future<Integer> f : results) {
+                int code = f.get();
+                if (code == 201) created++; else if (code == 200 || code == 409) replayedOrInProgress++; else throw new AssertionError("unexpected " + code);
+            }
+            assertThat(created).isEqualTo(1);
+            assertThat(replayedOrInProgress).isEqualTo(9);
+        } finally {
+            pool.shutdownNow();
+        }
+        // and once settled, the key replays the single claim
+        mvc.perform(post("/api/v1/claims").header("Authorization", bearer).header("X-Client-Id", "idem-par-after").header("Idempotency-Key", key)
+                        .contentType(APPLICATION_JSON).content(VALID))
+                .andExpect(status().isOk()).andExpect(header().string("Idempotent-Replayed", "true"));
     }
 }

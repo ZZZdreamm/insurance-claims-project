@@ -13,8 +13,8 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
+import java.time.Clock;
 import java.time.Duration;
-import java.time.Instant;
 
 /**
  * Fixed-window rate limit on claim submission, per client, shared across
@@ -28,9 +28,11 @@ public class SubmitRateLimitFilter extends OncePerRequestFilter {
 
     private final StringRedisTemplate redis;
     private final int perMinute;
+    private final Clock clock;
 
-    public SubmitRateLimitFilter(StringRedisTemplate redis, @Value("${claims.ratelimit.submit-per-minute}") int perMinute) {
+    public SubmitRateLimitFilter(StringRedisTemplate redis, Clock clock, @Value("${claims.ratelimit.submit-per-minute}") int perMinute) {
         this.redis = redis;
+        this.clock = clock;
         this.perMinute = perMinute;
     }
 
@@ -46,7 +48,8 @@ public class SubmitRateLimitFilter extends OncePerRequestFilter {
         if (client == null || client.isBlank()) {
             client = request.getRemoteAddr();
         }
-        long window = Instant.now().getEpochSecond() / 60;
+        long nowSec = clock.instant().getEpochSecond();
+        long window = nowSec / 60;
         String key = "ratelimit:submit:" + client + ":" + window;
         Long count = redis.opsForValue().increment(key);
         if (count != null && count == 1) {
@@ -56,7 +59,7 @@ public class SubmitRateLimitFilter extends OncePerRequestFilter {
         response.setHeader("X-RateLimit-Limit", Integer.toString(perMinute));
         response.setHeader("X-RateLimit-Remaining", Long.toString(remaining));
         if (count != null && count > perMinute) {
-            long retryAfter = 60 - (Instant.now().getEpochSecond() % 60);
+            long retryAfter = 60 - (nowSec % 60);
             response.setHeader("Retry-After", Long.toString(retryAfter));
             IdempotencyKeyFilter.problem(response, HttpStatus.TOO_MANY_REQUESTS, "Too many submissions",
                     "Limit is " + perMinute + " claim submissions per minute per client");

@@ -100,4 +100,20 @@ class SecurityIT extends AbstractIntegrationTest {
         mvc.perform(post("/api/v1/claims/{id}/retry-payout", id).header("Authorization", finance).contentType(APPLICATION_JSON).content("{\"approvedAmount\":91}"))
                 .andExpect(jsonPath("$.status").value("APPROVED"));
     }
+
+    @Test
+    void expiredAndTamperedTokensAreRejected() throws Exception {
+        String expired = TestTokens.expiredBearer(tokens, "alice", Role.ADJUSTER);
+        mvc.perform(get("/api/v1/reviews").header("Authorization", expired)).andExpect(status().isUnauthorized());
+
+        String forged = TestTokens.bearerSignedWith("another-secret-that-is-also-32-bytes-long!!", "admin", Role.ADMIN);
+        mvc.perform(get("/api/v1/reviews").header("Authorization", forged)).andExpect(status().isUnauthorized());
+
+        // role escalation by editing the payload breaks the signature
+        String valid = TestTokens.bearer(tokens, "anna", Role.POLICYHOLDER).substring("Bearer ".length());
+        String[] parts = valid.split("\\.");
+        String payload = new String(java.util.Base64.getUrlDecoder().decode(parts[1])).replace("POLICYHOLDER", "ADMIN");
+        String tampered = parts[0] + "." + java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(payload.getBytes()) + "." + parts[2];
+        mvc.perform(get("/api/v1/reviews").header("Authorization", "Bearer " + tampered)).andExpect(status().isUnauthorized());
+    }
 }
