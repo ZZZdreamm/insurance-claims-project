@@ -7,10 +7,10 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 @Configuration
-public class ElasticsearchConfig {
+public class ElasticsearchConfiguration {
     /** Reuse Boot's ObjectMapper (JavaTimeModule, ISO dates) for documents sent to / read from ES. */
     @Bean
-    JsonpMapper jsonpMapper(ObjectMapper objectMapper) {
+    public JsonpMapper jsonpMapper(ObjectMapper objectMapper) {
         return new JacksonJsonpMapper(objectMapper);
     }
 }

@@ -34,13 +34,13 @@ class SearchPerformanceIT {
     static { KAFKA.start(); ES.start(); }
 
     @DynamicPropertySource
-    static void props(DynamicPropertyRegistry r) { r.add("spring.elasticsearch.uris", () -> "http://" + ES.getHttpHostAddress()); }
+    static void elasticsearchProperties(DynamicPropertyRegistry registry) { registry.add("spring.elasticsearch.uris", () -> "http://" + ES.getHttpHostAddress()); }
 
     static final int N = 300;
     static final String[] WORDS = {"bumper", "windscreen", "door", "bonnet", "headlight", "airbag", "fire", "scratch"};
 
-    @Autowired KafkaTemplate<String, String> kafka;
-    @Autowired ClaimSearchService search;
+    @Autowired KafkaTemplate<String, String> kafkaTemplate;
+    @Autowired ClaimSearchService claimSearchService;
 
     @Test
     void projectsThreeHundredEventsAndAnswersFuzzyQueriesFast() throws Exception {
@@ -52,21 +52,21 @@ class SearchPerformanceIT {
                      "claim":{"claimNumber":"CLM-2026-%06d","policyNumber":"POL-%d","plateNumber":"PF%05d","incidentDate":"2026-08-20",
                               "description":"Perf claim %d with damaged %s","estimatedAmount":%d,"status":"SUBMITTED"}}"""
                     .formatted(UUID.randomUUID(), id, i, i % 40, i, i, WORDS[i % WORDS.length], 100 + i);
-            ProducerRecord<String, String> rec = new ProducerRecord<>("claims.events", id.toString(), json);
-            rec.headers().add(new RecordHeader("sequence", Long.toString(i + 1).getBytes(StandardCharsets.UTF_8)));
-            kafka.send(rec);
+            ProducerRecord<String, String> producerRecord = new ProducerRecord<>("claims.events", id.toString(), json);
+            producerRecord.headers().add(new RecordHeader("sequence", Long.toString(i + 1).getBytes(StandardCharsets.UTF_8)));
+            kafkaTemplate.send(producerRecord);
         }
-        kafka.flush();
-        await().atMost(Duration.ofSeconds(90)).untilAsserted(() -> assertThat(search.search(null, null, 0, 1).total()).isGreaterThanOrEqualTo(N));
+        kafkaTemplate.flush();
+        await().atMost(Duration.ofSeconds(90)).untilAsserted(() -> assertThat(claimSearchService.search(null, null, 0, 1).total()).isGreaterThanOrEqualTo(N));
         long indexMillis = System.currentTimeMillis() - start;
         System.out.printf("PERF %-32s %d events -> searchable in %d ms (%.1f docs/s, includes ES refresh interval)%n", "projection", N, indexMillis, N * 1000.0 / indexMillis);
 
         List<Long> latencies = new ArrayList<>();
         for (int i = 0; i < 100; i++) {
-            String q = i % 2 == 0 ? WORDS[i % WORDS.length] : "PF" + String.format("%05d", i).replace('0', '9').substring(0, 5);   // fuzzy plate
-            long s = System.nanoTime();
-            search.search(q, null, 0, 20);
-            latencies.add((System.nanoTime() - s) / 1_000_000);
+            String queryText = i % 2 == 0 ? WORDS[i % WORDS.length] : "PF" + String.format("%05d", i).replace('0', '9').substring(0, 5);   // fuzzy plate
+            long startedAt = System.nanoTime();
+            claimSearchService.search(queryText, null, 0, 20);
+            latencies.add((System.nanoTime() - startedAt) / 1_000_000);
         }
         latencies.sort(Long::compare);
         long p50 = latencies.get(49), p95 = latencies.get(94), p99 = latencies.get(98);

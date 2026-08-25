@@ -15,19 +15,19 @@ import java.io.IOException;
 @Validated
 public class SearchController {
 
-    private final ClaimSearchService search;
+    private final ClaimSearchService claimSearchService;
 
-    public SearchController(ClaimSearchService search) {
-        this.search = search;
+    public SearchController(ClaimSearchService claimSearchService) {
+        this.claimSearchService = claimSearchService;
     }
 
     /** e.g. {@code /api/v1/search?q=wa1234&status=PENDING_REVIEW} — fuzzy on plate, policy, claim number, description. */
     @GetMapping
-    public ClaimSearchService.SearchResult search(@RequestParam(required = false) String q,
+    public ClaimSearchService.SearchResult search(@RequestParam(name = "q", required = false) String queryText,
                                                   @RequestParam(required = false) String status,
                                                   @RequestParam(defaultValue = "0") @Min(0) int page,
                                                   @RequestParam(defaultValue = "20") @Min(1) @Max(100) int size)
             throws IOException {
-        return search.search(q, status, page, size);
+        return claimSearchService.search(queryText, status, page, size);
     }
 }

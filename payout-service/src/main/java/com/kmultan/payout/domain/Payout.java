@@ -28,7 +28,11 @@ public class Payout {
     protected Payout() {}
 
     public static Payout pending(UUID claimId) {
-        Payout p = new Payout(); p.claimId = claimId; p.amount = BigDecimal.ZERO; p.status = Status.PENDING; return p;
+        Payout payout = new Payout();
+        payout.claimId = claimId;
+        payout.amount = BigDecimal.ZERO;
+        payout.status = Status.PENDING;
+        return payout;
     }
 
     public void issued(BigDecimal amount, String reference, UUID causationEventId) {

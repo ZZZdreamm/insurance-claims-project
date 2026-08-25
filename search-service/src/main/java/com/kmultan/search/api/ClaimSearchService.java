@@ -15,35 +15,37 @@ import java.util.List;
 @Service
 public class ClaimSearchService {
 
-    private final ElasticsearchClient es;
-    private final String index;
+    private static final List<String> SEARCHED_FIELDS = List.of("claimNumber^3", "plateNumber^3", "plateNumber.raw^5", "policyNumber^2", "description");
 
-    public ClaimSearchService(ElasticsearchClient es, @Value("${search.index}") String index) {
-        this.es = es;
-        this.index = index;
+    private final ElasticsearchClient elasticsearchClient;
+    private final String indexName;
+
+    public ClaimSearchService(ElasticsearchClient elasticsearchClient, @Value("${search.index}") String indexName) {
+        this.elasticsearchClient = elasticsearchClient;
+        this.indexName = indexName;
     }
 
-    public SearchResult search(String q, String status, int page, int size) throws IOException {
-        Query text = (q == null || q.isBlank())
-                ? Query.of(b -> b.matchAll(m -> m))
-                : Query.of(b -> b.multiMatch(m -> m.query(q)
-                        .fields("claimNumber^3", "plateNumber^3", "plateNumber.raw^5", "policyNumber^2", "description")
+    public SearchResult search(String queryText, String status, int page, int size) throws IOException {
+        Query textQuery = (queryText == null || queryText.isBlank())
+                ? Query.of(query -> query.matchAll(matchAll -> matchAll))
+                : Query.of(query -> query.multiMatch(multiMatch -> multiMatch.query(queryText)
+                        .fields(SEARCHED_FIELDS)
                         .type(TextQueryType.BestFields)
                         .fuzziness("AUTO")));
 
-        Query full = (status == null || status.isBlank())
-                ? text
-                : Query.of(b -> b.bool(bb -> bb.must(text).filter(f -> f.term(t -> t.field("status").value(status)))));
+        Query fullQuery = (status == null || status.isBlank())
+                ? textQuery
+                : Query.of(query -> query.bool(bool -> bool.must(textQuery).filter(filter -> filter.term(term -> term.field("status").value(status)))));
 
-        SearchResponse<ClaimDocument> resp = es.search(s -> s.index(index).query(full)
+        SearchResponse<ClaimDocument> response = elasticsearchClient.search(request -> request.index(indexName).query(fullQuery)
                         .from(page * size).size(size)
-                        .sort(so -> so.score(sc -> sc.order(SortOrder.Desc)))
-                        .sort(so -> so.field(f -> f.field("lastEventAt").order(SortOrder.Desc))),
+                        .sort(sort -> sort.score(score -> score.order(SortOrder.Desc)))
+                        .sort(sort -> sort.field(field -> field.field("lastEventAt").order(SortOrder.Desc))),
                 ClaimDocument.class);
 
-        List<ClaimDocument> hits = resp.hits().hits().stream().map(h -> h.source()).toList();
-        long total = resp.hits().total() == null ? hits.size() : resp.hits().total().value();
-        return new SearchResult(hits, total, page, size);
+        List<ClaimDocument> items = response.hits().hits().stream().map(hit -> hit.source()).toList();
+        long total = response.hits().total() == null ? items.size() : response.hits().total().value();
+        return new SearchResult(items, total, page, size);
     }
 
     public record SearchResult(List<ClaimDocument> items, long total, int page, int size) {}

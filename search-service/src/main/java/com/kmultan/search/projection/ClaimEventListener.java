@@ -12,40 +12,42 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 
 @Component
-public class ClaimEventsListener {
+public class ClaimEventListener {
 
-    private static final Logger log = LoggerFactory.getLogger(ClaimEventsListener.class);
+    private static final Logger log = LoggerFactory.getLogger(ClaimEventListener.class);
 
-    private final ClaimIndexer indexer;
-    private final ClaimEventLogIndexer eventLog;
-    private final ObjectMapper json;
+    private static final String SEQUENCE_HEADER = "sequence";
 
-    public ClaimEventsListener(ClaimIndexer indexer, ClaimEventLogIndexer eventLog, ObjectMapper json) {
-        this.indexer = indexer;
-        this.eventLog = eventLog;
-        this.json = json;
+    private final ClaimDocumentIndexer documentIndexer;
+    private final ClaimEventLogIndexer eventLogIndexer;
+    private final ObjectMapper objectMapper;
+
+    public ClaimEventListener(ClaimDocumentIndexer documentIndexer, ClaimEventLogIndexer eventLogIndexer, ObjectMapper objectMapper) {
+        this.documentIndexer = documentIndexer;
+        this.eventLogIndexer = eventLogIndexer;
+        this.objectMapper = objectMapper;
     }
 
     @KafkaListener(topics = "${search.topic}", groupId = "${spring.kafka.consumer.group-id}")
-    public void on(ConsumerRecord<String, String> record) throws IOException {
+    public void onClaimEvent(ConsumerRecord<String, String> consumerRecord) throws IOException {
         try {
-            ClaimEventEnvelope event = json.readValue(record.value(), ClaimEventEnvelope.class);
-            long sequence = sequenceOf(record);
-            eventLog.append(event, sequence, json.readTree(record.value()));   // idempotent by event id
-            boolean written = indexer.index(ClaimDocument.from(event), sequence);
+            ClaimEventEnvelope event = objectMapper.readValue(consumerRecord.value(), ClaimEventEnvelope.class);
+            long sequence = sequenceOf(consumerRecord);
+            eventLogIndexer.append(event, sequence, objectMapper.readTree(consumerRecord.value()));   // idempotent by event id
+            boolean written = documentIndexer.index(ClaimDocument.from(event), sequence);
             log.debug("{} seq={} claim={} written={}", event.eventType(), sequence, event.claimId(), written);
-        } catch (RuntimeException | IOException e) {
+        } catch (RuntimeException | IOException exception) {
             // the error handler retries and eventually dead-letters; make sure the cause is visible
-            log.error("Failed to project {}-{}@{} key={}: {}", record.topic(), record.partition(), record.offset(), record.key(), e.toString(), e);
-            throw e;
+            log.error("Failed to project {}-{}@{} key={}: {}", consumerRecord.topic(), consumerRecord.partition(), consumerRecord.offset(), consumerRecord.key(), exception.toString(), exception);
+            throw exception;
         }
     }
 
-    private static long sequenceOf(ConsumerRecord<String, String> record) {
-        Header h = record.headers().lastHeader("sequence");
-        if (h == null) {
-            throw new IllegalArgumentException("Record at offset " + record.offset() + " has no 'sequence' header");
+    private static long sequenceOf(ConsumerRecord<String, String> consumerRecord) {
+        Header sequenceHeader = consumerRecord.headers().lastHeader(SEQUENCE_HEADER);
+        if (sequenceHeader == null) {
+            throw new IllegalArgumentException("Record at offset " + consumerRecord.offset() + " has no '" + SEQUENCE_HEADER + "' header");
         }
-        return Long.parseLong(new String(h.value(), StandardCharsets.UTF_8));
+        return Long.parseLong(new String(sequenceHeader.value(), StandardCharsets.UTF_8));
     }
 }

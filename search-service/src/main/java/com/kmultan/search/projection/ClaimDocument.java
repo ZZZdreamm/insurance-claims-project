@@ -20,10 +20,10 @@ public record ClaimDocument(
         Instant lastEventAt,
         String lastEventType
 ) {
-    public static ClaimDocument from(ClaimEventEnvelope e) {
-        ClaimEventEnvelope.Snapshot s = e.claim();
-        return new ClaimDocument(e.claimId(), s.claimNumber(), s.policyNumber(), s.plateNumber(), s.incidentDate(),
-                s.description(), s.estimatedAmount(), s.approvedAmount(), s.status(), s.rejectionReason(),
-                e.occurredAt(), e.eventType());
+    public static ClaimDocument from(ClaimEventEnvelope event) {
+        ClaimEventEnvelope.Snapshot snapshot = event.claim();
+        return new ClaimDocument(event.claimId(), snapshot.claimNumber(), snapshot.policyNumber(), snapshot.plateNumber(), snapshot.incidentDate(),
+                snapshot.description(), snapshot.estimatedAmount(), snapshot.approvedAmount(), snapshot.status(), snapshot.rejectionReason(),
+                event.occurredAt(), event.eventType());
     }
 }

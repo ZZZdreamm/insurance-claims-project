@@ -40,14 +40,13 @@ payout:
   events-topic: payout.events      # produced (and self-consumed for step 2)
   reserve-limit: 50000
 
-claims:
+platform:
+  security:
+    jwt-secret: ${AUTH_JWT_SECRET:dev-only-secret-change-me-please-32-bytes-minimum}   # same key as claim-service
+    jwt-issuer: claim-service
   outbox:
-    poll-interval-ms: 1000
+    poll-interval-millis: 1000
     batch-size: 100
-
-auth:
-  jwt-secret: ${AUTH_JWT_SECRET:dev-only-secret-change-me-please-32-bytes-minimum}   # same key as claim-service
-  issuer: claim-service
 
 logging:
   loki:

@@ -11,6 +11,7 @@ import org.springframework.stereotype.Component;
 
 import java.io.IOException;
 import java.time.Instant;
+import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
@@ -24,57 +25,57 @@ public class ClaimEventLogIndexer {
 
     private static final Logger log = LoggerFactory.getLogger(ClaimEventLogIndexer.class);
 
-    private final ElasticsearchClient es;
-    private final String index;
+    private final ElasticsearchClient elasticsearchClient;
+    private final String indexName;
 
-    public ClaimEventLogIndexer(ElasticsearchClient es, @Value("${search.event-log-index}") String index) {
-        this.es = es;
-        this.index = index;
+    public ClaimEventLogIndexer(ElasticsearchClient elasticsearchClient, @Value("${search.event-log-index}") String indexName) {
+        this.elasticsearchClient = elasticsearchClient;
+        this.indexName = indexName;
     }
 
-    public void append(ClaimEventEnvelope e, long sequence, JsonNode raw) throws IOException {
-        ClaimEventEnvelope.Snapshot s = e.claim();
-        Map<String, Object> doc = new java.util.LinkedHashMap<>();
-        doc.put("@timestamp", e.occurredAt() == null ? Instant.now() : e.occurredAt());
-        doc.put("eventId", e.eventId());
-        doc.put("eventType", e.eventType());
-        doc.put("sequence", sequence);
-        doc.put("claimId", e.claimId());
-        if (s != null) {
-            doc.put("claimNumber", s.claimNumber());
-            doc.put("policyNumber", s.policyNumber());
-            doc.put("plateNumber", s.plateNumber());
-            doc.put("status", s.status());
-            doc.put("estimatedAmount", s.estimatedAmount());
-            doc.put("approvedAmount", s.approvedAmount());
-            JsonNode sev = raw.path("claim").path("severity");
-            if (!sev.isMissingNode() && !sev.isNull()) doc.put("severity", sev.asText());
-            JsonNode assignee = raw.path("claim").path("reviewAssignee");
-            if (!assignee.isMissingNode() && !assignee.isNull()) doc.put("reviewAssignee", assignee.asText());
-            JsonNode escalated = raw.path("claim").path("escalated");
-            if (escalated.isBoolean()) doc.put("escalated", escalated.asBoolean());
+    public void append(ClaimEventEnvelope event, long sequence, JsonNode rawEvent) throws IOException {
+        ClaimEventEnvelope.Snapshot snapshot = event.claim();
+        Map<String, Object> document = new LinkedHashMap<>();
+        document.put("@timestamp", event.occurredAt() == null ? Instant.now() : event.occurredAt());
+        document.put("eventId", event.eventId());
+        document.put("eventType", event.eventType());
+        document.put("sequence", sequence);
+        document.put("claimId", event.claimId());
+        if (snapshot != null) {
+            document.put("claimNumber", snapshot.claimNumber());
+            document.put("policyNumber", snapshot.policyNumber());
+            document.put("plateNumber", snapshot.plateNumber());
+            document.put("status", snapshot.status());
+            document.put("estimatedAmount", snapshot.estimatedAmount());
+            document.put("approvedAmount", snapshot.approvedAmount());
+            JsonNode severity = rawEvent.path("claim").path("severity");
+            if (!severity.isMissingNode() && !severity.isNull()) document.put("severity", severity.asText());
+            JsonNode reviewAssignee = rawEvent.path("claim").path("reviewAssignee");
+            if (!reviewAssignee.isMissingNode() && !reviewAssignee.isNull()) document.put("reviewAssignee", reviewAssignee.asText());
+            JsonNode escalated = rawEvent.path("claim").path("escalated");
+            if (escalated.isBoolean()) document.put("escalated", escalated.asBoolean());
         }
-        es.index(IndexRequest.of(r -> r.index(index).id(e.eventId().toString()).document(doc)));
+        elasticsearchClient.index(IndexRequest.of(request -> request.index(indexName).id(event.eventId().toString()).document(document)));
     }
 
     public void ensureIndex() throws IOException {
-        BooleanResponse exists = es.indices().exists(r -> r.index(index));
+        BooleanResponse exists = elasticsearchClient.indices().exists(request -> request.index(indexName));
         if (exists.value()) return;
-        es.indices().create(c -> c.index(index).mappings(m -> m
-                .properties("@timestamp", p -> p.date(d -> d))
-                .properties("eventId", p -> p.keyword(k -> k))
-                .properties("eventType", p -> p.keyword(k -> k))
-                .properties("sequence", p -> p.long_(l -> l))
-                .properties("claimId", p -> p.keyword(k -> k))
-                .properties("claimNumber", p -> p.keyword(k -> k))
-                .properties("policyNumber", p -> p.keyword(k -> k))
-                .properties("plateNumber", p -> p.keyword(k -> k))
-                .properties("status", p -> p.keyword(k -> k))
-                .properties("severity", p -> p.keyword(k -> k))
-                .properties("reviewAssignee", p -> p.keyword(k -> k))
-                .properties("escalated", p -> p.boolean_(b -> b))
-                .properties("estimatedAmount", p -> p.scaledFloat(sf -> sf.scalingFactor(100.0)))
-                .properties("approvedAmount", p -> p.scaledFloat(sf -> sf.scalingFactor(100.0)))));
-        log.info("Created index {}", index);
+        elasticsearchClient.indices().create(request -> request.index(indexName).mappings(mappings -> mappings
+                .properties("@timestamp", property -> property.date(date -> date))
+                .properties("eventId", property -> property.keyword(keyword -> keyword))
+                .properties("eventType", property -> property.keyword(keyword -> keyword))
+                .properties("sequence", property -> property.long_(number -> number))
+                .properties("claimId", property -> property.keyword(keyword -> keyword))
+                .properties("claimNumber", property -> property.keyword(keyword -> keyword))
+                .properties("policyNumber", property -> property.keyword(keyword -> keyword))
+                .properties("plateNumber", property -> property.keyword(keyword -> keyword))
+                .properties("status", property -> property.keyword(keyword -> keyword))
+                .properties("severity", property -> property.keyword(keyword -> keyword))
+                .properties("reviewAssignee", property -> property.keyword(keyword -> keyword))
+                .properties("escalated", property -> property.boolean_(flag -> flag))
+                .properties("estimatedAmount", property -> property.scaledFloat(scaled -> scaled.scalingFactor(100.0)))
+                .properties("approvedAmount", property -> property.scaledFloat(scaled -> scaled.scalingFactor(100.0)))));
+        log.info("Created index {}", indexName);
     }
 }

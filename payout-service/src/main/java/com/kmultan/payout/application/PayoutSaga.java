@@ -40,87 +40,88 @@ public class PayoutSaga {
 
     private final FundReservationRepository reservations;
     private final PayoutRepository payouts;
-    private final ProcessedMessageRepository processed;
-    private final PaymentGateway gateway;
-    private final PayoutEventPublisher events;
+    private final ProcessedMessageRepository processedMessages;
+    private final PaymentGateway paymentGateway;
+    private final PayoutEventPublisher eventPublisher;
     private final BigDecimal reserveLimit;
 
-    public PayoutSaga(FundReservationRepository reservations, PayoutRepository payouts, ProcessedMessageRepository processed,
-                      PaymentGateway gateway, PayoutEventPublisher events,
+    public PayoutSaga(FundReservationRepository reservations, PayoutRepository payouts, ProcessedMessageRepository processedMessages,
+                      PaymentGateway paymentGateway, PayoutEventPublisher eventPublisher,
                       @Value("${payout.reserve-limit}") BigDecimal reserveLimit) {
         this.reservations = reservations;
         this.payouts = payouts;
-        this.processed = processed;
-        this.gateway = gateway;
-        this.events = events;
+        this.processedMessages = processedMessages;
+        this.paymentGateway = paymentGateway;
+        this.eventPublisher = eventPublisher;
         this.reserveLimit = reserveLimit;
     }
 
-    private boolean alreadyProcessed(UUID eventId, String type) {
-        if (processed.existsById(eventId)) {
-            log.info("Duplicate {} {} — skipped", type, eventId);
+    private boolean alreadyProcessed(UUID eventId, String eventType) {
+        if (processedMessages.existsById(eventId)) {
+            log.info("Duplicate {} {} — skipped", eventType, eventId);
             return true;
         }
-        processed.save(new ProcessedMessage(eventId, type));
+        processedMessages.save(new ProcessedMessage(eventId, eventType));
         return false;
     }
 
     /** Step 1: reserve funds for an approved claim. */
     @Transactional
-    public void onClaimApproved(ClaimEventEnvelope e) {
-        if (alreadyProcessed(e.eventId(), e.eventType())) return;
-        BigDecimal amount = e.claim() == null ? null : e.claim().approvedAmount();
-        UUID claimId = e.claimId();
+    public void onClaimApproved(ClaimEventEnvelope approval) {
+        if (alreadyProcessed(approval.eventId(), approval.eventType())) return;
+        BigDecimal amount = approval.claim() == null ? null : approval.claim().approvedAmount();
+        UUID claimId = approval.claimId();
         if (amount == null || amount.signum() <= 0) {
-            events.publish(PayoutEvent.of(RESERVATION_REJECTED, claimId, e.eventId(), amount, null, "Amount must be positive"));
+            eventPublisher.publish(PayoutEvent.of(RESERVATION_REJECTED, claimId, approval.eventId(), amount, null, "Amount must be positive"));
             return;
         }
         if (amount.compareTo(reserveLimit) > 0) {
-            events.publish(PayoutEvent.of(RESERVATION_REJECTED, claimId, e.eventId(), amount, null, "Amount exceeds reserve limit"));
+            eventPublisher.publish(PayoutEvent.of(RESERVATION_REJECTED, claimId, approval.eventId(), amount, null, "Amount exceeds reserve limit"));
             return;
         }
-        FundReservation r = reservations.findById(claimId).orElseGet(() -> new FundReservation(claimId, amount));
-        r.reserve(amount, e.eventId());   // re-approval after a failed payout re-reserves on the same row
-        reservations.save(r);
-        events.publish(PayoutEvent.of(FUNDS_RESERVED, claimId, e.eventId(), amount, null, null));
+        FundReservation reservation = reservations.findById(claimId).orElseGet(() -> new FundReservation(claimId, amount));
+        reservation.reserve(amount, approval.eventId());   // re-approval after a failed payout re-reserves on the same row
+        reservations.save(reservation);
+        eventPublisher.publish(PayoutEvent.of(FUNDS_RESERVED, claimId, approval.eventId(), amount, null, null));
     }
 
     /** Step 2: funds are reserved (our own fact) — transfer the money. Compensates step 1 locally on failure. */
     @Transactional
-    public void onFundsReserved(PayoutEvent e) {
-        if (alreadyProcessed(e.eventId(), e.type().name())) return;
-        UUID claimId = e.claimId();
-        Optional<FundReservation> reservation = reservations.findById(claimId).filter(r -> r.getStatus() == FundReservation.Status.RESERVED);
-        if (reservation.isEmpty()) {
-            events.publish(PayoutEvent.of(PAYOUT_FAILED, claimId, e.eventId(), e.amount(), null, "No active reservation for claim"));
+    public void onFundsReserved(PayoutEvent reserved) {
+        if (alreadyProcessed(reserved.eventId(), reserved.type().name())) return;
+        UUID claimId = reserved.claimId();
+        Optional<FundReservation> activeReservation = reservations.findById(claimId)
+                .filter(reservation -> reservation.getStatus() == FundReservation.Status.RESERVED);
+        if (activeReservation.isEmpty()) {
+            eventPublisher.publish(PayoutEvent.of(PAYOUT_FAILED, claimId, reserved.eventId(), reserved.amount(), null, "No active reservation for claim"));
             return;
         }
         Payout payout = payouts.findById(claimId).orElseGet(() -> Payout.pending(claimId));
-        PaymentGateway.Result result = gateway.transfer(claimId, null, e.amount());
-        if (result.success()) {
-            payout.issued(e.amount(), result.reference(), e.eventId());
-            reservation.get().settle();
+        PaymentGateway.Result transfer = paymentGateway.transfer(claimId, null, reserved.amount());
+        if (transfer.success()) {
+            payout.issued(reserved.amount(), transfer.reference(), reserved.eventId());
+            activeReservation.get().settle();
             payouts.save(payout);
-            events.publish(PayoutEvent.of(PAYOUT_ISSUED, claimId, e.eventId(), e.amount(), result.reference(), null));
+            eventPublisher.publish(PayoutEvent.of(PAYOUT_ISSUED, claimId, reserved.eventId(), reserved.amount(), transfer.reference(), null));
         } else {
-            payout.failed(e.amount(), result.reason(), e.eventId());
-            reservation.get().release();                 // compensation of step 1
+            payout.failed(reserved.amount(), transfer.reason(), reserved.eventId());
+            activeReservation.get().release();                 // compensation of step 1
             payouts.save(payout);
-            events.publish(PayoutEvent.of(PAYOUT_FAILED, claimId, e.eventId(), e.amount(), null, result.reason()));
-            events.publish(PayoutEvent.of(FUNDS_RELEASED, claimId, e.eventId(), e.amount(), null, null));
+            eventPublisher.publish(PayoutEvent.of(PAYOUT_FAILED, claimId, reserved.eventId(), reserved.amount(), null, transfer.reason()));
+            eventPublisher.publish(PayoutEvent.of(FUNDS_RELEASED, claimId, reserved.eventId(), reserved.amount(), null, null));
         }
     }
 
     /** Cross-service compensation: claim-service could not accept the payment (e.g. claim withdrawn meanwhile). */
     @Transactional
-    public void onPayoutUnaccepted(ClaimEventEnvelope e) {
-        if (alreadyProcessed(e.eventId(), e.eventType())) return;
-        UUID claimId = e.claimId();
-        payouts.findById(claimId).filter(p -> p.getStatus() == Payout.Status.ISSUED).ifPresent(p -> {
-            gateway.reverse(claimId, p.getReference());
-            p.reverse();
+    public void onPayoutUnaccepted(ClaimEventEnvelope unaccepted) {
+        if (alreadyProcessed(unaccepted.eventId(), unaccepted.eventType())) return;
+        UUID claimId = unaccepted.claimId();
+        payouts.findById(claimId).filter(payout -> payout.getStatus() == Payout.Status.ISSUED).ifPresent(payout -> {
+            paymentGateway.reverse(claimId, payout.getReference());
+            payout.reverse();
         });
         reservations.findById(claimId).ifPresent(FundReservation::release);
-        events.publish(PayoutEvent.of(PAYOUT_REVERSED, claimId, e.eventId(), null, null, null));
+        eventPublisher.publish(PayoutEvent.of(PAYOUT_REVERSED, claimId, unaccepted.eventId(), null, null, null));
     }
 }

@@ -50,11 +50,11 @@ class ClaimApprovedContractTest {
     @Test
     @PactTestFor(pactMethod = "claimApproved")
     void parsesTheEventItDependsOn(List<Message> messages) throws Exception {
-        ObjectMapper json = new ObjectMapper().registerModule(new JavaTimeModule())
+        ObjectMapper objectMapper = new ObjectMapper().registerModule(new JavaTimeModule())
                 .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
-        ClaimEventEnvelope e = json.readValue(messages.get(0).contentsAsString(), ClaimEventEnvelope.class);
-        assertThat(e.eventType()).isEqualTo(ClaimEventEnvelope.CLAIM_APPROVED);
-        assertThat(e.claim().approvedAmount()).isEqualByComparingTo("1400.00");
-        assertThat(e.claim().policyNumber()).isNotBlank();
+        ClaimEventEnvelope event = objectMapper.readValue(messages.get(0).contentsAsString(), ClaimEventEnvelope.class);
+        assertThat(event.eventType()).isEqualTo(ClaimEventEnvelope.CLAIM_APPROVED);
+        assertThat(event.claim().approvedAmount()).isEqualByComparingTo("1400.00");
+        assertThat(event.claim().policyNumber()).isNotBlank();
     }
 }

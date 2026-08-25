@@ -29,9 +29,10 @@ search:
   index: claims              # current state per claim (search API)
   event-log-index: claim-events   # append-only fact log (Kibana)
 
-auth:
-  jwt-secret: ${AUTH_JWT_SECRET:dev-only-secret-change-me-please-32-bytes-minimum}   # same key as claim-service
-  issuer: claim-service
+platform:
+  security:
+    jwt-secret: ${AUTH_JWT_SECRET:dev-only-secret-change-me-please-32-bytes-minimum}   # same key as claim-service
+    jwt-issuer: claim-service
 
 logging:
   loki:

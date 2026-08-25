@@ -1,9 +1,11 @@
 package com.kmultan.search.projection;
 
 import co.elastic.clients.elasticsearch.ElasticsearchClient;
+import co.elastic.clients.elasticsearch._types.ElasticsearchException;
 import co.elastic.clients.elasticsearch._types.VersionType;
 import co.elastic.clients.elasticsearch.core.IndexRequest;
 import co.elastic.clients.transport.endpoints.BooleanResponse;
+import org.elasticsearch.client.ResponseException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -18,62 +20,63 @@ import java.io.IOException;
  * projection idempotent without any bookkeeping table.
  */
 @Component
-public class ClaimIndexer {
+public class ClaimDocumentIndexer {
 
-    private static final Logger log = LoggerFactory.getLogger(ClaimIndexer.class);
+    private static final Logger log = LoggerFactory.getLogger(ClaimDocumentIndexer.class);
+    private static final int HTTP_CONFLICT = 409;
 
-    private final ElasticsearchClient es;
-    private final String index;
+    private final ElasticsearchClient elasticsearchClient;
+    private final String indexName;
 
-    public ClaimIndexer(ElasticsearchClient es, @Value("${search.index}") String index) {
-        this.es = es;
-        this.index = index;
+    public ClaimDocumentIndexer(ElasticsearchClient elasticsearchClient, @Value("${search.index}") String indexName) {
+        this.elasticsearchClient = elasticsearchClient;
+        this.indexName = indexName;
     }
 
     /** @return true if the document was written, false if ES rejected it as stale */
-    public boolean index(ClaimDocument doc, long sequence) throws IOException {
+    public boolean index(ClaimDocument document, long sequence) throws IOException {
         try {
-            es.index(IndexRequest.of(r -> r.index(index).id(doc.claimId().toString())
+            elasticsearchClient.index(IndexRequest.of(request -> request.index(indexName).id(document.claimId().toString())
                     .version(sequence).versionType(VersionType.External)
-                    .document(doc)));
+                    .document(document)));
             return true;
-        } catch (co.elastic.clients.elasticsearch._types.ElasticsearchException e) {
-            return ignoreIfConflict(e.status(), e, doc, sequence);
-        } catch (org.elasticsearch.client.ResponseException e) {
+        } catch (ElasticsearchException exception) {
+            return ignoreIfConflict(exception.status(), exception, document, sequence);
+        } catch (ResponseException exception) {
             // the transport layer can surface a version conflict before the typed client parses it
-            return ignoreIfConflict(e.getResponse().getStatusLine().getStatusCode(), e, doc, sequence);
+            return ignoreIfConflict(exception.getResponse().getStatusLine().getStatusCode(), exception, document, sequence);
         }
     }
 
-    private static boolean ignoreIfConflict(int status, Exception e, ClaimDocument doc, long sequence) throws IOException {
-        if (status == 409) {
-            log.info("Ignoring stale event seq={} for claim {}", sequence, doc.claimId());
+    private static boolean ignoreIfConflict(int httpStatus, Exception exception, ClaimDocument document, long sequence) throws IOException {
+        if (httpStatus == HTTP_CONFLICT) {
+            log.info("Ignoring stale event seq={} for claim {}", sequence, document.claimId());
             return false;
         }
-        if (e instanceof IOException io) {
-            throw io;
+        if (exception instanceof IOException ioException) {
+            throw ioException;
         }
-        throw (RuntimeException) e;
+        throw (RuntimeException) exception;
     }
 
     public void ensureIndex() throws IOException {
-        BooleanResponse exists = es.indices().exists(r -> r.index(index));
+        BooleanResponse exists = elasticsearchClient.indices().exists(request -> request.index(indexName));
         if (exists.value()) {
             return;
         }
-        es.indices().create(c -> c.index(index).mappings(m -> m
-                .properties("claimId", p -> p.keyword(k -> k))
-                .properties("claimNumber", p -> p.keyword(k -> k))
-                .properties("policyNumber", p -> p.keyword(k -> k))
-                .properties("plateNumber", p -> p.text(t -> t.fields("raw", f -> f.keyword(k -> k))))
-                .properties("description", p -> p.text(t -> t.analyzer("english")))
-                .properties("status", p -> p.keyword(k -> k))
-                .properties("rejectionReason", p -> p.text(t -> t))
-                .properties("incidentDate", p -> p.date(d -> d))
-                .properties("lastEventAt", p -> p.date(d -> d))
-                .properties("lastEventType", p -> p.keyword(k -> k))
-                .properties("estimatedAmount", p -> p.scaledFloat(s -> s.scalingFactor(100.0)))
-                .properties("approvedAmount", p -> p.scaledFloat(s -> s.scalingFactor(100.0)))));
-        log.info("Created index {}", index);
+        elasticsearchClient.indices().create(request -> request.index(indexName).mappings(mappings -> mappings
+                .properties("claimId", property -> property.keyword(keyword -> keyword))
+                .properties("claimNumber", property -> property.keyword(keyword -> keyword))
+                .properties("policyNumber", property -> property.keyword(keyword -> keyword))
+                .properties("plateNumber", property -> property.text(text -> text.fields("raw", field -> field.keyword(keyword -> keyword))))
+                .properties("description", property -> property.text(text -> text.analyzer("english")))
+                .properties("status", property -> property.keyword(keyword -> keyword))
+                .properties("rejectionReason", property -> property.text(text -> text))
+                .properties("incidentDate", property -> property.date(date -> date))
+                .properties("lastEventAt", property -> property.date(date -> date))
+                .properties("lastEventType", property -> property.keyword(keyword -> keyword))
+                .properties("estimatedAmount", property -> property.scaledFloat(scaled -> scaled.scalingFactor(100.0)))
+                .properties("approvedAmount", property -> property.scaledFloat(scaled -> scaled.scalingFactor(100.0)))));
+        log.info("Created index {}", indexName);
     }
 }
