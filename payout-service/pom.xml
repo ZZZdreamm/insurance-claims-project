@@ -146,7 +146,7 @@
             <include>**/*Test.java</include>
             <include>**/*IT.java</include>
           </includes>
-          <excludedGroups>${skipITs.groups}</excludedGroups>
+          <excludedGroups>${excluded.groups}</excludedGroups>
           <systemPropertyVariables>
             <!-- consumer contracts are committed next to the code so the provider can verify them -->
             <pact.rootDir>${project.basedir}/../contracts/pacts</pact.rootDir>
@@ -158,18 +158,19 @@
 
   <profiles>
     <profile>
-      <id>default-its</id>
-      <activation>
-        <property><name>!skipITs</name></property>
-      </activation>
-      <properties><skipITs.groups></skipITs.groups></properties>
+      <id>perf-off</id>
+      <activation><property><name>!perf</name></property></activation>
+      <properties><excluded.groups>perf</excluded.groups></properties>
+    </profile>
+    <profile>
+      <id>perf-on</id>
+      <activation><property><name>perf</name></property></activation>
+      <properties><excluded.groups></excluded.groups></properties>
     </profile>
     <profile>
       <id>skip-its</id>
-      <activation>
-        <property><name>skipITs</name></property>
-      </activation>
-      <properties><skipITs.groups>integration</skipITs.groups></properties>
+      <activation><property><name>skipITs</name></property></activation>
+      <properties><excluded.groups>integration,perf</excluded.groups></properties>
     </profile>
   </profiles>
 </project>
