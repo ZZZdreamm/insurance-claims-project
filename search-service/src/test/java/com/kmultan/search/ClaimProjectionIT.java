@@ -94,7 +94,9 @@ class ClaimProjectionIT {
         long logged = es.count(c -> c.index("claim-events").query(q -> q.term(t -> t.field("claimId").value(id.toString())))).count();
         assertThat(logged).isEqualTo(3);
 
-        mvc.perform(get("/api/v1/search").param("q", "parking").param("status", "UNDER_ASSESSMENT"))
+        mvc.perform(get("/api/v1/search").param("q", "parking")).andExpect(status().isUnauthorized());
+        mvc.perform(get("/api/v1/search").param("q", "parking").header("Authorization", TestTokens.bearer("anna", "POLICYHOLDER"))).andExpect(status().isForbidden());
+        mvc.perform(get("/api/v1/search").param("q", "parking").param("status", "UNDER_ASSESSMENT").header("Authorization", TestTokens.bearer("alice", "ADJUSTER")))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items[0].claimId").value(id.toString()))
                 .andExpect(jsonPath("$.items[0].lastEventType").value("ASSESSMENT_STARTED"));

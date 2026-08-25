@@ -152,7 +152,9 @@ class PayoutSagaIT {
     void poisonMessageGoesToDltAndCanBeReplayed() throws Exception {
         kafka.send("claims.events", UUID.randomUUID().toString(), "{not json").get();
         Thread.sleep(6000);   // 4 attempts with backoff, then DLT
-        mvc.perform(post("/api/v1/dlq/replay")).andExpect(status().isOk())
+        mvc.perform(post("/api/v1/dlq/replay").header("Authorization", TestTokens.bearer("alice", "ADJUSTER"))).andExpect(status().isForbidden());
+        mvc.perform(post("/api/v1/dlq/replay")).andExpect(status().isUnauthorized());
+        mvc.perform(post("/api/v1/dlq/replay").header("Authorization", TestTokens.bearer("finance", "FINANCE"))).andExpect(status().isOk())
                 .andExpect(jsonPath("$.topic").value("claims.events"))
                 .andExpect(jsonPath("$.replayed").value(1));
     }
