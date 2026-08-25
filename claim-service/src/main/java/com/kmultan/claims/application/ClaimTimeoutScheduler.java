@@ -22,20 +22,20 @@ import java.time.Instant;
  * Each claim is handled in its own transaction so one failure does not stall the sweep.
  */
 @Component
-public class ClaimScheduler {
+public class ClaimTimeoutScheduler {
 
-    private static final Logger log = LoggerFactory.getLogger(ClaimScheduler.class);
+    private static final Logger log = LoggerFactory.getLogger(ClaimTimeoutScheduler.class);
 
     private final ClaimRepository claims;
-    private final ClaimService service;
-    private final AssessmentProvider fallback;
+    private final ClaimService claimService;
+    private final AssessmentProvider fallbackAssessment;
     private final Duration assessmentTimeout;
 
-    public ClaimScheduler(ClaimRepository claims, ClaimService service, AssessmentProvider fallback,
-                          @Value("${claims.assessment.timeout}") Duration assessmentTimeout) {
+    public ClaimTimeoutScheduler(ClaimRepository claims, ClaimService claimService, AssessmentProvider fallbackAssessment,
+                                 @Value("${claims.assessment.timeout}") Duration assessmentTimeout) {
         this.claims = claims;
-        this.service = service;
-        this.fallback = fallback;
+        this.claimService = claimService;
+        this.fallbackAssessment = fallbackAssessment;
         this.assessmentTimeout = assessmentTimeout;
     }
 
@@ -48,14 +48,14 @@ public class ClaimScheduler {
 
     public int escalateOverdueReviews(Instant now) {
         int escalated = 0;
-        for (Claim c : claims.findByStatusAndReviewDueAtBeforeAndEscalatedAtIsNull(ClaimStatus.PENDING_REVIEW, now)) {
+        for (Claim claim : claims.findByStatusAndReviewDueAtBeforeAndEscalatedAtIsNull(ClaimStatus.PENDING_REVIEW, now)) {
             try {
-                if (service.escalateReview(c.getId(), now)) {
+                if (claimService.escalateReview(claim.getId(), now)) {
                     escalated++;
-                    log.warn("Review SLA breached for claim {} (due {})", c.getClaimNumber(), c.getReviewDueAt());
+                    log.warn("Review SLA breached for claim {} (due {})", claim.getClaimNumber(), claim.getReviewDueAt());
                 }
-            } catch (RuntimeException e) {
-                log.error("Escalation failed for claim {}: {}", c.getId(), e.toString());
+            } catch (RuntimeException exception) {
+                log.error("Escalation failed for claim {}: {}", claim.getId(), exception.toString());
             }
         }
         return escalated;
@@ -63,13 +63,13 @@ public class ClaimScheduler {
 
     public int completeStalledAssessments(Instant now) {
         int completed = 0;
-        for (Claim c : claims.findByStatusAndCreatedAtBefore(ClaimStatus.SUBMITTED, now.minus(assessmentTimeout))) {
+        for (Claim claim : claims.findByStatusAndCreatedAtBefore(ClaimStatus.SUBMITTED, now.minus(assessmentTimeout))) {
             try {
-                service.completeAssessment(c.getId(), fallback.assess(c));
+                claimService.completeAssessment(claim.getId(), fallbackAssessment.assess(claim));
                 completed++;
-                log.warn("No triage result for claim {} within {}; heuristic fallback applied", c.getClaimNumber(), assessmentTimeout);
-            } catch (RuntimeException e) {
-                log.error("Fallback assessment failed for claim {}: {}", c.getId(), e.toString());
+                log.warn("No triage result for claim {} within {}; heuristic fallback applied", claim.getClaimNumber(), assessmentTimeout);
+            } catch (RuntimeException exception) {
+                log.error("Fallback assessment failed for claim {}: {}", claim.getId(), exception.toString());
             }
         }
         return completed;

@@ -1,5 +1,7 @@
 package com.kmultan.claims.infrastructure.redis;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.kmultan.platform.web.ProblemDetails;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -29,72 +31,75 @@ import java.util.regex.Pattern;
  */
 @Component
 @Order(2)
-public class IdempotencyKeyFilter extends OncePerRequestFilter {
+public class ClaimSubmissionIdempotencyFilter extends OncePerRequestFilter {
 
-    public static final String HEADER = "Idempotency-Key";
-    private static final Pattern KEY = Pattern.compile("^[A-Za-z0-9_-]{8,128}$");
-    private static final String IN_PROGRESS = "IN_PROGRESS";
+    public static final String IDEMPOTENCY_KEY_HEADER = "Idempotency-Key";
+    public static final String REPLAYED_HEADER = "Idempotent-Replayed";
+    private static final Pattern KEY_FORMAT = Pattern.compile("^[A-Za-z0-9_-]{8,128}$");
+    private static final String IN_PROGRESS_MARKER = "IN_PROGRESS";
+    private static final Duration IN_PROGRESS_TTL = Duration.ofSeconds(60);
 
     private final StringRedisTemplate redis;
-    private final Duration ttl;
+    private final ObjectMapper objectMapper;
+    private final Duration keyTtl;
 
-    public IdempotencyKeyFilter(StringRedisTemplate redis, @Value("${claims.idempotency.ttl}") Duration ttl) {
+    public ClaimSubmissionIdempotencyFilter(StringRedisTemplate redis, ObjectMapper objectMapper,
+                                            @Value("${claims.idempotency.ttl}") Duration keyTtl) {
         this.redis = redis;
-        this.ttl = ttl;
+        this.objectMapper = objectMapper;
+        this.keyTtl = keyTtl;
     }
 
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
-        return !(HttpMethod.POST.matches(request.getMethod()) && "/api/v1/claims".equals(request.getRequestURI()))
-                || request.getHeader(HEADER) == null;
+        boolean isSubmit = HttpMethod.POST.matches(request.getMethod()) && ClaimSubmissionRateLimitFilter.SUBMIT_PATH.equals(request.getRequestURI());
+        return !isSubmit || request.getHeader(IDEMPOTENCY_KEY_HEADER) == null;
     }
 
     @Override
-    protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)
+    protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
             throws ServletException, IOException {
-        String key = request.getHeader(HEADER);
-        if (!KEY.matcher(key).matches()) {
-            problem(response, HttpStatus.BAD_REQUEST, "Invalid Idempotency-Key", "8-128 chars: letters, digits, '-' or '_'");
+        String idempotencyKey = request.getHeader(IDEMPOTENCY_KEY_HEADER);
+        if (!KEY_FORMAT.matcher(idempotencyKey).matches()) {
+            ProblemDetails.write(response, objectMapper, HttpStatus.BAD_REQUEST, "Invalid Idempotency-Key", "8-128 chars: letters, digits, '-' or '_'");
             return;
         }
-        String redisKey = "idem:claim:" + key;
-        Boolean acquired = redis.opsForValue().setIfAbsent(redisKey, IN_PROGRESS, Duration.ofSeconds(60));
+        String redisKey = "idem:claim:" + idempotencyKey;
+        Boolean acquired = redis.opsForValue().setIfAbsent(redisKey, IN_PROGRESS_MARKER, IN_PROGRESS_TTL);
         if (!Boolean.TRUE.equals(acquired)) {
-            String existing = redis.opsForValue().get(redisKey);
-            if (existing == null || IN_PROGRESS.equals(existing)) {
-                problem(response, HttpStatus.CONFLICT, "Request in progress", "A request with this Idempotency-Key is still being processed");
-            } else {
-                // replay: same key, already created -> point at the existing claim, no second submission
-                response.setStatus(HttpStatus.OK.value());
-                response.setHeader("Location", "/api/v1/claims/" + existing);
-                response.setHeader("Idempotent-Replayed", "true");
-                response.setContentType(MediaType.APPLICATION_JSON_VALUE);
-                response.getWriter().write("{\"id\":\"" + existing + "\",\"replayed\":true}");
-            }
+            replayOrReject(response, redisKey);
             return;
         }
-        ContentCachingResponseWrapper wrapped = new ContentCachingResponseWrapper(response);
+        ContentCachingResponseWrapper wrappedResponse = new ContentCachingResponseWrapper(response);
         try {
-            chain.doFilter(request, wrapped);
-            if (wrapped.getStatus() == HttpStatus.CREATED.value()) {
-                String location = wrapped.getHeader("Location");
+            filterChain.doFilter(request, wrappedResponse);
+            if (wrappedResponse.getStatus() == HttpStatus.CREATED.value()) {
+                String location = wrappedResponse.getHeader("Location");
                 String claimId = location.substring(location.lastIndexOf('/') + 1);
-                redis.opsForValue().set(redisKey, claimId, ttl);
+                redis.opsForValue().set(redisKey, claimId, keyTtl);
             } else {
                 redis.delete(redisKey);   // failed submission: let the client retry with the same key
             }
-        } catch (RuntimeException | ServletException | IOException e) {
+        } catch (RuntimeException | ServletException | IOException exception) {
             redis.delete(redisKey);
-            throw e;
+            throw exception;
         } finally {
-            wrapped.copyBodyToResponse();
+            wrappedResponse.copyBodyToResponse();
         }
     }
 
-    static void problem(HttpServletResponse response, HttpStatus status, String title, String detail) throws IOException {
-        response.setStatus(status.value());
-        response.setContentType(MediaType.APPLICATION_PROBLEM_JSON_VALUE);
-        response.getWriter().write("{\"type\":\"about:blank\",\"title\":\"%s\",\"status\":%d,\"detail\":\"%s\"}"
-                .formatted(title, status.value(), detail));
+    private void replayOrReject(HttpServletResponse response, String redisKey) throws IOException {
+        String stored = redis.opsForValue().get(redisKey);
+        if (stored == null || IN_PROGRESS_MARKER.equals(stored)) {
+            ProblemDetails.write(response, objectMapper, HttpStatus.CONFLICT, "Request in progress",
+                    "A request with this Idempotency-Key is still being processed");
+            return;
+        }
+        // replay: same key, already created -> point at the existing claim, no second submission
+        response.setStatus(HttpStatus.OK.value());
+        response.setHeader("Location", ClaimSubmissionRateLimitFilter.SUBMIT_PATH + "/" + stored);
+        response.setHeader(REPLAYED_HEADER, "true");
+        response.setContentType(MediaType.APPLICATION_JSON_VALUE);
+        response.getWriter().write("{\"id\":\"" + stored + "\",\"replayed\":true}");
     }
 }

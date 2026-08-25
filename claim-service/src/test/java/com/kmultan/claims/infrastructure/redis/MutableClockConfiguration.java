@@ -11,7 +11,7 @@ import java.util.concurrent.atomic.AtomicReference;
 
 /** A clock the test can move, so a 60-second window can be crossed without sleeping 60 seconds. */
 @TestConfiguration
-public class MutableClockConfig {
+public class MutableClockConfiguration {
 
     public static class MutableClock extends Clock {
         private final AtomicReference<Instant> now = new AtomicReference<>(Instant.now());

@@ -19,23 +19,24 @@ import java.util.EnumSet;
  * accounts through an admin flow or an IdP instead.
  */
 @Configuration
-public class DemoUsersSeeder {
+public class DemoAccountSeeder {
 
-    private static final Logger log = LoggerFactory.getLogger(DemoUsersSeeder.class);
+    private static final Logger log = LoggerFactory.getLogger(DemoAccountSeeder.class);
 
     @Bean
-    ApplicationRunner seedDemoUsers(UserAccountRepository users, PasswordEncoder encoder, AuthProperties props) {
-        return args -> {
-            if (!props.seedDemoUsers() || users.count() > 0) {
+    public ApplicationRunner seedDemoAccounts(UserAccountRepository accounts, PasswordEncoder passwordEncoder, AuthenticationProperties properties) {
+        return arguments -> {
+            if (!properties.seedDemoUsers() || accounts.count() > 0) {
                 return;
             }
-            users.save(new UserAccount("anna", encoder.encode("anna"), "Anna Kowalska", EnumSet.of(Role.POLICYHOLDER)));
-            users.save(new UserAccount("marek", encoder.encode("marek"), "Marek Nowak", EnumSet.of(Role.POLICYHOLDER)));
-            users.save(new UserAccount("alice", encoder.encode("alice"), "Alice Adjuster", EnumSet.of(Role.ADJUSTER)));
-            users.save(new UserAccount("bob", encoder.encode("bob"), "Bob Adjuster", EnumSet.of(Role.ADJUSTER)));
-            users.save(new UserAccount("finance", encoder.encode("finance"), "Finance Desk", EnumSet.of(Role.FINANCE)));
-            users.save(new UserAccount("admin", encoder.encode("admin"), "Platform Admin", EnumSet.of(Role.ADMIN)));
-            users.save(new UserAccount("assessment-service", encoder.encode(props.serviceAccountPassword()), "assessment-service (machine)", EnumSet.of(Role.SERVICE)));
+            accounts.save(new UserAccount("anna", passwordEncoder.encode("anna"), "Anna Kowalska", EnumSet.of(Role.POLICYHOLDER)));
+            accounts.save(new UserAccount("marek", passwordEncoder.encode("marek"), "Marek Nowak", EnumSet.of(Role.POLICYHOLDER)));
+            accounts.save(new UserAccount("alice", passwordEncoder.encode("alice"), "Alice Adjuster", EnumSet.of(Role.ADJUSTER)));
+            accounts.save(new UserAccount("bob", passwordEncoder.encode("bob"), "Bob Adjuster", EnumSet.of(Role.ADJUSTER)));
+            accounts.save(new UserAccount("finance", passwordEncoder.encode("finance"), "Finance Desk", EnumSet.of(Role.FINANCE)));
+            accounts.save(new UserAccount("admin", passwordEncoder.encode("admin"), "Platform Admin", EnumSet.of(Role.ADMIN)));
+            accounts.save(new UserAccount("assessment-service", passwordEncoder.encode(properties.serviceAccountPassword()),
+                    "assessment-service (machine)", EnumSet.of(Role.SERVICE)));
             log.warn("Seeded demo accounts (anna, marek, alice, bob, finance, admin, assessment-service). Do not ship this to production.");
         };
     }

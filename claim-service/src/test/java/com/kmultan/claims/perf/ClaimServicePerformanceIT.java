@@ -4,10 +4,8 @@ import com.kmultan.claims.AbstractIntegrationTest;
 import com.kmultan.claims.application.ClaimService;
 import com.kmultan.claims.domain.Claim;
 import com.kmultan.claims.domain.ClaimStatus;
-import com.kmultan.claims.domain.auth.Role;
-import com.kmultan.claims.infrastructure.outbox.OutboxRepository;
-import com.kmultan.claims.infrastructure.security.JwtTokens;
-import com.kmultan.claims.infrastructure.security.TestTokens;
+import com.kmultan.platform.outbox.OutboxEventRepository;
+import com.kmultan.platform.security.TestJwtTokenFactory;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -41,13 +39,14 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 @TestPropertySource(properties = "claims.ratelimit.submit-per-minute=1000000")
 class ClaimServicePerformanceIT extends AbstractIntegrationTest {
 
-    static final int THREADS = 20;
-    static final int PER_THREAD = 25;
+    private static final TestJwtTokenFactory TOKENS = new TestJwtTokenFactory();
+    private static final int THREADS = 20;
+    private static final int SUBMITS_PER_THREAD = 25;
+    private static final int CHOREOGRAPHY_CLAIMS = 50;
 
-    @Autowired MockMvc mvc;
-    @Autowired JwtTokens tokens;
-    @Autowired ClaimService service;
-    @Autowired OutboxRepository outbox;
+    @Autowired MockMvc mockMvc;
+    @Autowired ClaimService claimService;
+    @Autowired OutboxEventRepository outboxEvents;
 
     private static final String BODY = """
             {"policyNumber":"POL-PERF","plateNumber":"PF 1","incidentDate":"%s",
@@ -56,58 +55,58 @@ class ClaimServicePerformanceIT extends AbstractIntegrationTest {
 
     @Test
     void submitLatencyUnderConcurrency_andOutboxDrains() throws Exception {
-        String bearer = TestTokens.bearer(tokens, "anna", Role.POLICYHOLDER);
-        Stats http = new Stats();
+        String bearer = TOKENS.bearer("anna", "POLICYHOLDER");
+        LatencyStatistics httpLatency = new LatencyStatistics();
         ExecutorService pool = Executors.newFixedThreadPool(THREADS);
-        long start = System.currentTimeMillis();
+        long startedAtMillis = System.currentTimeMillis();
         try {
             List<Future<Integer>> results = new ArrayList<>();
-            for (int t = 0; t < THREADS; t++) {
+            for (int thread = 0; thread < THREADS; thread++) {
                 results.add(pool.submit((Callable<Integer>) () -> {
-                    int ok = 0;
-                    for (int i = 0; i < PER_THREAD; i++) {
-                        long s = System.nanoTime();
-                        int code = mvc.perform(post("/api/v1/claims").header("Authorization", bearer)
+                    int created = 0;
+                    for (int submission = 0; submission < SUBMITS_PER_THREAD; submission++) {
+                        long requestStartedAt = System.nanoTime();
+                        int statusCode = mockMvc.perform(post("/api/v1/claims").header("Authorization", bearer)
                                         .header("Idempotency-Key", UUID.randomUUID().toString())
                                         .contentType(APPLICATION_JSON).content(BODY))
                                 .andReturn().getResponse().getStatus();
-                        http.record((System.nanoTime() - s) / 1_000_000);
-                        if (code == 201) ok++;
+                        httpLatency.record((System.nanoTime() - requestStartedAt) / 1_000_000);
+                        if (statusCode == 201) created++;
                     }
-                    return ok;
+                    return created;
                 }));
             }
-            int created = 0;
-            for (Future<Integer> f : results) created += f.get();
-            long wall = System.currentTimeMillis() - start;
-            System.out.println("PERF " + http.summary("POST /api/v1/claims (" + THREADS + " threads)", wall));
-            assertThat(created).isEqualTo(THREADS * PER_THREAD);
-            assertThat(http.percentile(95)).as("p95 submit latency").isLessThan(1000);
+            int createdTotal = 0;
+            for (Future<Integer> result : results) createdTotal += result.get();
+            long wallMillis = System.currentTimeMillis() - startedAtMillis;
+            System.out.println("PERF " + httpLatency.summary("POST /api/v1/claims (" + THREADS + " threads)", wallMillis));
+            assertThat(createdTotal).isEqualTo(THREADS * SUBMITS_PER_THREAD);
+            assertThat(httpLatency.percentile(95)).as("p95 submit latency").isLessThan(1000);
         } finally {
             pool.shutdownNow();
         }
 
         // outbox relay: everything above (+ the assessment events the fakes trigger) must drain quickly
-        long drainStart = System.currentTimeMillis();
-        await().atMost(Duration.ofSeconds(60)).until(() -> outbox.countByPublishedAtIsNull() == 0);
-        long drainMillis = System.currentTimeMillis() - drainStart;
+        long drainStartedAt = System.currentTimeMillis();
+        await().atMost(Duration.ofSeconds(60)).until(() -> outboxEvents.countByPublishedAtIsNull() == 0);
+        long drainMillis = System.currentTimeMillis() - drainStartedAt;
         System.out.printf("PERF %-32s pending drained in %d ms (poll interval 1000 ms, batch 100)%n", "outbox relay", drainMillis);
         assertThat(drainMillis).isLessThan(30_000);
     }
 
     @Test
     void choreographyThroughput_claimsReachReview() {
-        int n = 50;
         List<Claim> claims = new ArrayList<>();
-        long start = System.currentTimeMillis();
-        for (int i = 0; i < n; i++) {
-            claims.add(service.submit("POL-CT", "CT " + i, LocalDate.now(), "Choreography throughput claim #" + i, null, List.of()));
+        long startedAtMillis = System.currentTimeMillis();
+        for (int index = 0; index < CHOREOGRAPHY_CLAIMS; index++) {
+            claims.add(claimService.submit("POL-CT", "CT " + index, LocalDate.now(), "Choreography throughput claim #" + index, null, List.of()));
         }
         await().atMost(Duration.ofSeconds(90)).untilAsserted(() ->
-                assertThat(claims.stream().filter(c -> service.get(c.getId()).getStatus() == ClaimStatus.PENDING_REVIEW).count()).isEqualTo(n));
-        long wall = System.currentTimeMillis() - start;
+                assertThat(claims.stream().filter(claim -> claimService.get(claim.getId()).getStatus() == ClaimStatus.PENDING_REVIEW).count())
+                        .isEqualTo(CHOREOGRAPHY_CLAIMS));
+        long wallMillis = System.currentTimeMillis() - startedAtMillis;
         System.out.printf("PERF %-32s %d claims submitted -> triaged (2 Kafka hops each) in %d ms (%.1f claims/s)%n",
-                "submit -> PENDING_REVIEW", n, wall, n * 1000.0 / wall);
-        assertThat(wall).isLessThan(60_000);
+                "submit -> PENDING_REVIEW", CHOREOGRAPHY_CLAIMS, wallMillis, CHOREOGRAPHY_CLAIMS * 1000.0 / wallMillis);
+        assertThat(wallMillis).isLessThan(60_000);
     }
 }

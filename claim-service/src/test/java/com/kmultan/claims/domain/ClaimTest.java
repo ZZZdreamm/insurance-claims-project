@@ -13,23 +13,23 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class ClaimTest {
 
-    private static Claim submitted() {
+    private static Claim submittedClaim() {
         return Claim.submit("CLM-2026-000001", "POL-1", "wa 12345", LocalDate.now().minusDays(1),
                 "Rear bumper dented in a parking lot", new BigDecimal("1200.00"));
     }
 
-    private static Claim pendingReview() {
-        Claim c = submitted();
-        c.completeAssessment(Severity.MODERATE, new BigDecimal("1500.00"), "test", Instant.now().plusSeconds(3600));
-        return c;
+    private static Claim claimPendingReview() {
+        Claim claim = submittedClaim();
+        claim.completeAssessment(Severity.MODERATE, new BigDecimal("1500.00"), "test", Instant.now().plusSeconds(3600));
+        return claim;
     }
 
     @Test
     void newClaimStartsSubmittedWithNormalisedPlate() {
-        Claim c = submitted();
-        assertThat(c.getStatus()).isEqualTo(ClaimStatus.SUBMITTED);
-        assertThat(c.getPlateNumber()).isEqualTo("WA12345");
-        assertThat(c.getId()).isNotNull();
+        Claim claim = submittedClaim();
+        assertThat(claim.getStatus()).isEqualTo(ClaimStatus.SUBMITTED);
+        assertThat(claim.getPlateNumber()).isEqualTo("WA12345");
+        assertThat(claim.getId()).isNotNull();
     }
 
     @Test
@@ -40,98 +40,98 @@ class ClaimTest {
 
     @Test
     void assessmentMovesToReviewAndRecordsTriage() {
-        Claim c = pendingReview();
-        assertThat(c.getStatus()).isEqualTo(ClaimStatus.PENDING_REVIEW);
-        assertThat(c.getSeverity()).isEqualTo(Severity.MODERATE);
-        assertThat(c.getEstimatedAmount()).isEqualByComparingTo("1500.00");
-        assertThat(c.getReviewDueAt()).isNotNull();
+        Claim claim = claimPendingReview();
+        assertThat(claim.getStatus()).isEqualTo(ClaimStatus.PENDING_REVIEW);
+        assertThat(claim.getSeverity()).isEqualTo(Severity.MODERATE);
+        assertThat(claim.getEstimatedAmount()).isEqualByComparingTo("1500.00");
+        assertThat(claim.getReviewDueAt()).isNotNull();
     }
 
     @Test
     void happyPathToPaid() {
-        Claim c = pendingReview();
-        c.claimReview("alice");
-        c.approve(new BigDecimal("1400.00"));
-        c.markPaid();
-        assertThat(c.getStatus()).isEqualTo(ClaimStatus.PAID);
-        assertThat(c.getApprovedAmount()).isEqualByComparingTo("1400.00");
+        Claim claim = claimPendingReview();
+        claim.claimReview("alice");
+        claim.approve(new BigDecimal("1400.00"));
+        claim.markPaid();
+        assertThat(claim.getStatus()).isEqualTo(ClaimStatus.PAID);
+        assertThat(claim.getApprovedAmount()).isEqualByComparingTo("1400.00");
     }
 
     @Test
     void cannotApproveBeforeReview() {
-        Claim c = submitted();
-        assertThatThrownBy(() -> c.approve(BigDecimal.TEN))
+        Claim claim = submittedClaim();
+        assertThatThrownBy(() -> claim.approve(BigDecimal.TEN))
                 .isInstanceOf(InvalidStateTransitionException.class)
                 .hasMessageContaining("SUBMITTED").hasMessageContaining("APPROVED");
-        assertThat(c.getStatus()).isEqualTo(ClaimStatus.SUBMITTED);
+        assertThat(claim.getStatus()).isEqualTo(ClaimStatus.SUBMITTED);
     }
 
     @Test
     void reviewCanOnlyBeClaimedByOneAdjuster() {
-        Claim c = pendingReview();
-        c.claimReview("alice");
-        c.claimReview("alice");   // idempotent for the same person
-        assertThatThrownBy(() -> c.claimReview("bob")).isInstanceOf(IllegalStateException.class);
-        c.unclaimReview();
-        c.claimReview("bob");
-        assertThat(c.getReviewAssignee()).isEqualTo("bob");
+        Claim claim = claimPendingReview();
+        claim.claimReview("alice");
+        claim.claimReview("alice");   // idempotent for the same person
+        assertThatThrownBy(() -> claim.claimReview("bob")).isInstanceOf(IllegalStateException.class);
+        claim.unclaimReview();
+        claim.claimReview("bob");
+        assertThat(claim.getReviewAssignee()).isEqualTo("bob");
     }
 
     @Test
     void escalationHappensOnceAndKeepsTheReviewOpen() {
-        Claim c = pendingReview();
+        Claim claim = claimPendingReview();
         Instant now = Instant.now();
-        assertThat(c.escalateReview(now)).isTrue();
-        assertThat(c.escalateReview(now.plusSeconds(60))).isFalse();
-        assertThat(c.getEscalatedAt()).isEqualTo(now);
-        assertThat(c.getStatus()).isEqualTo(ClaimStatus.PENDING_REVIEW);
+        assertThat(claim.escalateReview(now)).isTrue();
+        assertThat(claim.escalateReview(now.plusSeconds(60))).isFalse();
+        assertThat(claim.getEscalatedAt()).isEqualTo(now);
+        assertThat(claim.getStatus()).isEqualTo(ClaimStatus.PENDING_REVIEW);
     }
 
     @Test
     void rejectRequiresReason() {
-        Claim c = pendingReview();
-        assertThatThrownBy(() -> c.reject(" ")).isInstanceOf(IllegalArgumentException.class);
-        c.reject("Policy lapsed");
-        assertThat(c.getStatus()).isEqualTo(ClaimStatus.REJECTED);
-        assertThat(c.getRejectionReason()).isEqualTo("Policy lapsed");
+        Claim claim = claimPendingReview();
+        assertThatThrownBy(() -> claim.reject(" ")).isInstanceOf(IllegalArgumentException.class);
+        claim.reject("Policy lapsed");
+        assertThat(claim.getStatus()).isEqualTo(ClaimStatus.REJECTED);
+        assertThat(claim.getRejectionReason()).isEqualTo("Policy lapsed");
     }
 
     @Test
     void failedPayoutCanBeRetriedWithCorrectedAmount() {
-        Claim c = pendingReview();
-        c.approve(new BigDecimal("100.99"));
-        c.markPayoutFailed("provider rejected");
-        assertThat(c.getStatus()).isEqualTo(ClaimStatus.PAYOUT_FAILED);
-        assertThat(c.getPayoutFailureReason()).isEqualTo("provider rejected");
+        Claim claim = claimPendingReview();
+        claim.approve(new BigDecimal("100.99"));
+        claim.markPayoutFailed("provider rejected");
+        assertThat(claim.getStatus()).isEqualTo(ClaimStatus.PAYOUT_FAILED);
+        assertThat(claim.getPayoutFailureReason()).isEqualTo("provider rejected");
 
-        c.retryPayout(new BigDecimal("101.00"));
-        assertThat(c.getStatus()).isEqualTo(ClaimStatus.APPROVED);
-        assertThat(c.getApprovedAmount()).isEqualByComparingTo("101.00");
-        assertThat(c.getPayoutFailureReason()).isNull();
+        claim.retryPayout(new BigDecimal("101.00"));
+        assertThat(claim.getStatus()).isEqualTo(ClaimStatus.APPROVED);
+        assertThat(claim.getApprovedAmount()).isEqualByComparingTo("101.00");
+        assertThat(claim.getPayoutFailureReason()).isNull();
 
-        c.markPayoutFailed("again");
-        c.retryPayout(null);   // keep the amount
-        assertThat(c.getApprovedAmount()).isEqualByComparingTo("101.00");
-        c.markPaid();
-        assertThat(c.getStatus()).isEqualTo(ClaimStatus.PAID);
+        claim.markPayoutFailed("again");
+        claim.retryPayout(null);   // keep the amount
+        assertThat(claim.getApprovedAmount()).isEqualByComparingTo("101.00");
+        claim.markPaid();
+        assertThat(claim.getStatus()).isEqualTo(ClaimStatus.PAID);
     }
 
     @Test
     void retryOnlyFromPayoutFailed() {
-        Claim c = pendingReview();
-        assertThatThrownBy(() -> c.retryPayout(null)).isInstanceOf(InvalidStateTransitionException.class);
+        Claim claim = claimPendingReview();
+        assertThatThrownBy(() -> claim.retryPayout(null)).isInstanceOf(InvalidStateTransitionException.class);
     }
 
     @ParameterizedTest
     @EnumSource(value = ClaimStatus.class, names = {"REJECTED", "PAID", "WITHDRAWN"})
-    void terminalStatesHaveNoTransitions(ClaimStatus s) {
-        assertThat(s.isTerminal()).isTrue();
+    void terminalStatesHaveNoTransitions(ClaimStatus status) {
+        assertThat(status.isTerminal()).isTrue();
     }
 
     @Test
     void withdrawnClaimCannotBeReopened() {
-        Claim c = submitted();
-        c.withdraw();
-        assertThatThrownBy(() -> c.completeAssessment(Severity.MINOR, null, "x", null)).isInstanceOf(InvalidStateTransitionException.class);
+        Claim claim = submittedClaim();
+        claim.withdraw();
+        assertThatThrownBy(() -> claim.completeAssessment(Severity.MINOR, null, "x", null)).isInstanceOf(InvalidStateTransitionException.class);
     }
 }

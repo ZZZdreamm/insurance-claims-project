@@ -21,9 +21,9 @@ public class SequenceClaimNumberGenerator implements ClaimNumberGenerator {
 
     @Override
     public String next() {
-        Number seq = (Number) entityManager
+        Number nextValue = (Number) entityManager
                 .createNativeQuery("select nextval('claim_number_seq')")
                 .getSingleResult();
-        return "CLM-%d-%06d".formatted(Year.now().getValue(), seq.longValue());
+        return "CLM-%d-%06d".formatted(Year.now().getValue(), nextValue.longValue());
     }
 }

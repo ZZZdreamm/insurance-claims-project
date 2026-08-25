@@ -26,8 +26,8 @@ class HeuristicAssessmentProviderTest {
     })
     void classifiesByKeywordsAndEstimate(String description, BigDecimal estimate, Severity expected, BigDecimal amount) {
         Claim claim = Claim.submit("CLM-X", "POL", "AB123", LocalDate.now(), description, estimate);
-        Assessment a = provider.assess(claim);
-        assertThat(a.severity()).isEqualTo(expected);
-        assertThat(a.assessedAmount()).isEqualByComparingTo(amount);
+        Assessment assessment = provider.assess(claim);
+        assertThat(assessment.severity()).isEqualTo(expected);
+        assertThat(assessment.assessedAmount()).isEqualByComparingTo(amount);
     }
 }

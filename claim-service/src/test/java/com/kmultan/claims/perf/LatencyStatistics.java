@@ -5,7 +5,7 @@ import java.util.Collections;
 import java.util.List;
 
 /** Tiny latency stats helper: percentiles over recorded millisecond samples. */
-public final class Stats {
+public final class LatencyStatistics {
     private final List<Long> samples = Collections.synchronizedList(new ArrayList<>());
 
     public void record(long millis) { samples.add(millis); }

@@ -2,6 +2,7 @@ package com.kmultan.claims.infrastructure.outbox;
 
 import com.kmultan.claims.domain.event.ClaimEvent;
 import com.kmultan.claims.domain.event.DomainEventPublisher;
+import com.kmultan.platform.outbox.OutboxWriter;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 

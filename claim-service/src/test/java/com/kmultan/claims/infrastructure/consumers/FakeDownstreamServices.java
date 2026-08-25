@@ -27,38 +27,45 @@ import java.util.concurrent.atomic.AtomicReference;
 @TestComponent
 public class FakeDownstreamServices {
 
+    private static final BigDecimal RESERVE_LIMIT = new BigDecimal("50000");
+    private static final BigDecimal PROVIDER_REJECTS_CENTS = new BigDecimal("0.99");
+
     public final List<JsonNode> claimEvents = new CopyOnWriteArrayList<>();
 
     /** Several Spring test contexts may be cached in one JVM; only the first fake answers, the others just record. */
     private static final AtomicReference<FakeDownstreamServices> RESPONDER = new AtomicReference<>();
     private final boolean responder;
 
-    private final KafkaTemplate<String, String> kafka;
-    private final ObjectMapper json;
+    private final KafkaTemplate<String, String> kafkaTemplate;
+    private final ObjectMapper objectMapper;
     private final String assessmentTopic;
     private final String payoutTopic;
 
-    public FakeDownstreamServices(KafkaTemplate<String, String> kafka, ObjectMapper json,
+    public FakeDownstreamServices(KafkaTemplate<String, String> kafkaTemplate, ObjectMapper objectMapper,
                                   @Value("${claims.topics.assessment}") String assessmentTopic,
                                   @Value("${claims.topics.payout}") String payoutTopic) {
-        this.kafka = kafka;
-        this.json = json;
+        this.kafkaTemplate = kafkaTemplate;
+        this.objectMapper = objectMapper;
         this.assessmentTopic = assessmentTopic;
         this.payoutTopic = payoutTopic;
         this.responder = RESPONDER.compareAndSet(null, this);
     }
 
     @KafkaListener(topics = "${claims.topics.claims}", groupId = "fake-downstream-#{T(java.util.UUID).randomUUID()}")
-    public void onClaimEvent(ConsumerRecord<String, String> record) throws Exception {
-        JsonNode e = json.readTree(record.value());
-        claimEvents.add(e);
-        if (!responder) return;
-        String type = e.get("eventType").asText();
-        String claimId = e.get("claimId").asText();
-        JsonNode claim = e.get("claim");
-        switch (type) {
+    public void onClaimEvent(ConsumerRecord<String, String> consumerRecord) throws Exception {
+        JsonNode event = objectMapper.readTree(consumerRecord.value());
+        claimEvents.add(event);
+        if (!responder) {
+            return;
+        }
+        String eventType = event.get("eventType").asText();
+        String claimId = event.get("claimId").asText();
+        JsonNode claim = event.get("claim");
+        switch (eventType) {
             case "CLAIM_SUBMITTED" -> {
-                if (claim.get("description").asText().contains("NOASSESS")) return;
+                if (claim.get("description").asText().contains("NOASSESS")) {
+                    return;
+                }
                 String severity = claim.get("description").asText().toLowerCase().contains("fire") ? "SEVERE" : "MODERATE";
                 send(assessmentTopic, claimId, """
                         {"eventId":"%s","eventType":"ASSESSMENT_COMPLETED","claimId":"%s","severity":"%s","assessedAmount":1500.00,
@@ -67,35 +74,37 @@ public class FakeDownstreamServices {
             }
             case "CLAIM_APPROVED" -> {
                 BigDecimal amount = new BigDecimal(claim.get("approvedAmount").asText());
-                if (amount.compareTo(new BigDecimal("50000")) > 0) {
-                    payout(claimId, e, "RESERVATION_REJECTED", null, "Amount exceeds reserve limit");
-                } else if (amount.remainder(BigDecimal.ONE).compareTo(new BigDecimal("0.99")) == 0) {
-                    payout(claimId, e, "FUNDS_RESERVED", null, null);
-                    payout(claimId, e, "PAYOUT_FAILED", null, "Payment provider rejected the transfer");
-                    payout(claimId, e, "FUNDS_RELEASED", null, null);
+                if (amount.compareTo(RESERVE_LIMIT) > 0) {
+                    payoutEvent(claimId, event, "RESERVATION_REJECTED", null, "Amount exceeds reserve limit");
+                } else if (amount.remainder(BigDecimal.ONE).compareTo(PROVIDER_REJECTS_CENTS) == 0) {
+                    payoutEvent(claimId, event, "FUNDS_RESERVED", null, null);
+                    payoutEvent(claimId, event, "PAYOUT_FAILED", null, "Payment provider rejected the transfer");
+                    payoutEvent(claimId, event, "FUNDS_RELEASED", null, null);
                 } else {
-                    payout(claimId, e, "FUNDS_RESERVED", null, null);
-                    payout(claimId, e, "PAYOUT_ISSUED", "PAY-" + claimId.substring(0, 8), null);
+                    payoutEvent(claimId, event, "FUNDS_RESERVED", null, null);
+                    payoutEvent(claimId, event, "PAYOUT_ISSUED", "PAY-" + claimId.substring(0, 8), null);
                 }
             }
-            case "PAYOUT_UNACCEPTED" -> payout(claimId, e, "PAYOUT_REVERSED", null, null);
+            case "PAYOUT_UNACCEPTED" -> payoutEvent(claimId, event, "PAYOUT_REVERSED", null, null);
             default -> { }
         }
     }
 
-    private void payout(String claimId, JsonNode cause, String type, String reference, String reason) throws Exception {
+    private void payoutEvent(String claimId, JsonNode cause, String eventType, String reference, String reason) throws Exception {
         send(payoutTopic, claimId, """
                 {"eventId":"%s","type":"%s","claimId":"%s","causationEventId":"%s","reference":%s,"reason":%s,"occurredAt":"%s"}"""
-                .formatted(UUID.randomUUID(), type, claimId, cause.get("eventId").asText(),
+                .formatted(UUID.randomUUID(), eventType, claimId, cause.get("eventId").asText(),
                         reference == null ? "null" : "\"" + reference + "\"", reason == null ? "null" : "\"" + reason + "\"", Instant.now()));
     }
 
     private void send(String topic, String key, String body) throws Exception {
-        kafka.send(topic, key, body).get();
+        kafkaTemplate.send(topic, key, body).get();
     }
 
     public List<String> eventTypesFor(UUID claimId) {
-        return claimEvents.stream().filter(e -> e.get("claimId").asText().equals(claimId.toString()))
-                .map(e -> e.get("eventType").asText()).toList();
+        return claimEvents.stream()
+                .filter(event -> event.get("claimId").asText().equals(claimId.toString()))
+                .map(event -> event.get("eventType").asText())
+                .toList();
     }
 }

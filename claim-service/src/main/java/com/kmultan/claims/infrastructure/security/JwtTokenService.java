@@ -1,74 +1,55 @@
 package com.kmultan.claims.infrastructure.security;
 
 import com.kmultan.claims.domain.auth.UserAccount;
+import com.kmultan.platform.security.JwtClaims;
+import com.kmultan.platform.security.PlatformSecurityProperties;
 import com.nimbusds.jose.jwk.source.ImmutableSecret;
 import org.springframework.security.oauth2.jose.jws.MacAlgorithm;
 import org.springframework.security.oauth2.jwt.JwsHeader;
 import org.springframework.security.oauth2.jwt.JwtClaimsSet;
-import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.security.oauth2.jwt.JwtEncoder;
 import org.springframework.security.oauth2.jwt.JwtEncoderParameters;
-import org.springframework.security.oauth2.jwt.JwtValidators;
-import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
 import org.springframework.security.oauth2.jwt.NimbusJwtEncoder;
-import org.springframework.stereotype.Component;
+import org.springframework.stereotype.Service;
 
 import javax.crypto.SecretKey;
-import javax.crypto.spec.SecretKeySpec;
 import java.time.Instant;
-import java.util.List;
 
 /**
- * Self-issued HS256 JWTs. The secret is shared by every service that must
- * verify tokens (payout-service, search-service). Asymmetric keys (RS256 +
- * JWKS endpoint) would let other services verify without holding the secret;
- * for a single-team platform a shared secret from the environment is the
- * simpler, honest choice.
+ * Issues the platform's HS256 tokens. Verification lives in platform-commons so
+ * every service checks tokens the same way; only claim-service signs them.
+ * Asymmetric keys (RS256 + JWKS) are the upgrade if a third party must verify
+ * without holding the secret.
  */
-@Component
-public class JwtTokens {
+@Service
+public class JwtTokenService {
 
-    public static final String ROLES_CLAIM = "roles";
-    public static final String USERNAME_CLAIM = "preferred_username";
-    public static final String NAME_CLAIM = "name";
+    public record IssuedToken(String value, Instant expiresAt) {}
 
     private final JwtEncoder encoder;
-    private final JwtDecoder decoder;
-    private final AuthProperties props;
+    private final PlatformSecurityProperties securityProperties;
+    private final AuthenticationProperties authenticationProperties;
 
-    public JwtTokens(AuthProperties props) {
-        this.props = props;
-        SecretKey key = new SecretKeySpec(props.secret().getBytes(), "HmacSHA256");
-        this.encoder = new NimbusJwtEncoder(new ImmutableSecret<>(key));
-        NimbusJwtDecoder nimbus = NimbusJwtDecoder.withSecretKey(key).macAlgorithm(MacAlgorithm.HS256).build();
-        nimbus.setJwtValidator(JwtValidators.createDefaultWithIssuer(props.issuer()));
-        this.decoder = nimbus;
+    public JwtTokenService(SecretKey jwtSecretKey, PlatformSecurityProperties securityProperties,
+                           AuthenticationProperties authenticationProperties) {
+        this.encoder = new NimbusJwtEncoder(new ImmutableSecret<>(jwtSecretKey));
+        this.securityProperties = securityProperties;
+        this.authenticationProperties = authenticationProperties;
     }
 
-    public record Issued(String token, Instant expiresAt) {}
-
-    public Issued issue(UserAccount user) {
+    public IssuedToken issue(UserAccount account) {
         Instant now = Instant.now();
-        Instant exp = now.plus(props.ttl());
+        Instant expiresAt = now.plus(authenticationProperties.tokenTtl());
         JwtClaimsSet claims = JwtClaimsSet.builder()
-                .issuer(props.issuer())
-                .subject(user.getId().toString())
+                .issuer(securityProperties.jwtIssuer())
+                .subject(account.getId().toString())
                 .issuedAt(now)
-                .expiresAt(exp)
-                .claim(USERNAME_CLAIM, user.getUsername())
-                .claim(NAME_CLAIM, user.getDisplayName())
-                .claim(ROLES_CLAIM, user.getRoles().stream().map(Enum::name).toList())
+                .expiresAt(expiresAt)
+                .claim(JwtClaims.PREFERRED_USERNAME, account.getUsername())
+                .claim(JwtClaims.DISPLAY_NAME, account.getDisplayName())
+                .claim(JwtClaims.ROLES, account.getRoles().stream().map(Enum::name).toList())
                 .build();
-        String token = encoder.encode(JwtEncoderParameters.from(JwsHeader.with(MacAlgorithm.HS256).build(), claims)).getTokenValue();
-        return new Issued(token, exp);
-    }
-
-    public JwtDecoder decoder() {
-        return decoder;
-    }
-
-    static List<String> rolesOf(org.springframework.security.oauth2.jwt.Jwt jwt) {
-        List<String> roles = jwt.getClaimAsStringList(ROLES_CLAIM);
-        return roles == null ? List.of() : roles;
+        String value = encoder.encode(JwtEncoderParameters.from(JwsHeader.with(MacAlgorithm.HS256).build(), claims)).getTokenValue();
+        return new IssuedToken(value, expiresAt);
     }
 }

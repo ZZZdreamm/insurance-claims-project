@@ -44,12 +44,18 @@ spring:
       ack-mode: record
       observation-enabled: true
 
+platform:
+  security:
+    # HS256 shared secret; every service verifies tokens with the same key. Override in any real deployment.
+    jwt-secret: ${AUTH_JWT_SECRET:dev-only-secret-change-me-please-32-bytes-minimum}
+    jwt-issuer: claim-service
+  outbox:
+    poll-interval-millis: 1000
+    batch-size: 100
+
 claims:
   auth:
-    # HS256 shared secret; every service verifies tokens with the same key. Override in any real deployment.
-    secret: ${AUTH_JWT_SECRET:dev-only-secret-change-me-please-32-bytes-minimum}
-    issuer: claim-service
-    ttl: PT8H
+    token-ttl: PT8H
     seed-demo-users: ${AUTH_SEED_DEMO_USERS:true}
     service-account-password: ${SERVICE_ACCOUNT_PASSWORD:assessment-secret}
   topics:
@@ -70,9 +76,6 @@ claims:
     allowed-origins: http://localhost:3000
   kafka:
     partitions: 3
-  outbox:
-    poll-interval-ms: 1000
-    batch-size: 100
 
 logging:
   loki:

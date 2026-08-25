@@ -1,14 +1,13 @@
 package com.kmultan.claims.api;
 
-import com.kmultan.claims.api.ClaimDtos.ClaimResponse;
-import com.kmultan.claims.api.ClaimDtos.RetryPayoutRequest;
-import com.kmultan.claims.api.ClaimDtos.SubmitClaimRequest;
+import com.kmultan.claims.api.dto.ClaimResponse;
+import com.kmultan.claims.api.dto.RetryPayoutRequest;
+import com.kmultan.claims.api.dto.SubmitClaimRequest;
 import com.kmultan.claims.application.ClaimService;
 import com.kmultan.claims.domain.Claim;
 import com.kmultan.claims.domain.ClaimPhoto;
 import com.kmultan.claims.domain.ClaimStatus;
-import com.kmultan.claims.infrastructure.security.CurrentUser;
-import org.springframework.security.access.prepost.PreAuthorize;
+import com.kmultan.claims.infrastructure.security.AuthenticatedUser;
 import jakarta.validation.Valid;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -16,6 +15,7 @@ import org.springframework.data.domain.Sort;
 import org.springframework.data.web.PageableDefault;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -29,6 +29,7 @@ import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 
 import java.io.IOException;
 import java.net.URI;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
@@ -37,81 +38,86 @@ import java.util.UUID;
 @RequestMapping("/api/v1/claims")
 public class ClaimController {
 
-    private static final Set<String> IMAGE_TYPES = Set.of(MediaType.IMAGE_JPEG_VALUE, MediaType.IMAGE_PNG_VALUE, "image/webp");
+    private static final Set<String> ACCEPTED_PHOTO_TYPES = Set.of(MediaType.IMAGE_JPEG_VALUE, MediaType.IMAGE_PNG_VALUE, "image/webp");
 
-    private final ClaimService service;
+    private final ClaimService claimService;
+    private final ClaimResponseAssembler responses;
 
-    public ClaimController(ClaimService service) {
-        this.service = service;
-    }
-
-    private ClaimResponse response(Claim c) {
-        return ClaimResponse.from(c, service.photosOf(c.getId()).stream().map(ClaimPhoto::getId).toList());
+    public ClaimController(ClaimService claimService, ClaimResponseAssembler responses) {
+        this.claimService = claimService;
+        this.responses = responses;
     }
 
     /** JSON submit: no photos, triage falls back to the text model. The claim belongs to the caller. */
     @PostMapping(consumes = MediaType.APPLICATION_JSON_VALUE)
     @PreAuthorize("hasAnyRole('POLICYHOLDER', 'ADMIN')")
-    public ResponseEntity<ClaimResponse> submit(@Valid @RequestBody SubmitClaimRequest req) {
-        return created(service.submit(req.policyNumber(), req.plateNumber(), req.incidentDate(), req.description(), req.estimatedAmount(), List.of(), CurrentUser.get().id()));
+    public ResponseEntity<ClaimResponse> submit(@Valid @RequestBody SubmitClaimRequest request) {
+        return created(submit(request, List.of()));
     }
 
     /** Multipart submit: {@code claim} JSON part + zero or more {@code photos} image parts. */
     @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @PreAuthorize("hasAnyRole('POLICYHOLDER', 'ADMIN')")
-    public ResponseEntity<ClaimResponse> submitWithPhotos(@Valid @RequestPart("claim") SubmitClaimRequest req,
-                                                          @RequestPart(value = "photos", required = false) List<MultipartFile> photos) throws IOException {
-        List<ClaimService.Photo> uploads = new java.util.ArrayList<>();
-        for (MultipartFile f : photos == null ? List.<MultipartFile>of() : photos) {
-            if (f.isEmpty()) continue;
-            if (!IMAGE_TYPES.contains(f.getContentType())) {
-                throw new IllegalArgumentException("Unsupported photo type: " + f.getContentType());
+    public ResponseEntity<ClaimResponse> submitWithPhotos(@Valid @RequestPart("claim") SubmitClaimRequest request,
+                                                          @RequestPart(value = "photos", required = false) List<MultipartFile> photoFiles) throws IOException {
+        List<ClaimService.Photo> photos = new ArrayList<>();
+        for (MultipartFile photoFile : photoFiles == null ? List.<MultipartFile>of() : photoFiles) {
+            if (photoFile.isEmpty()) {
+                continue;
             }
-            uploads.add(new ClaimService.Photo(f.getContentType(), f.getBytes()));
+            if (!ACCEPTED_PHOTO_TYPES.contains(photoFile.getContentType())) {
+                throw new IllegalArgumentException("Unsupported photo type: " + photoFile.getContentType());
+            }
+            photos.add(new ClaimService.Photo(photoFile.getContentType(), photoFile.getBytes()));
         }
-        return created(service.submit(req.policyNumber(), req.plateNumber(), req.incidentDate(), req.description(), req.estimatedAmount(), uploads, CurrentUser.get().id()));
+        return created(submit(request, photos));
+    }
+
+    private Claim submit(SubmitClaimRequest request, List<ClaimService.Photo> photos) {
+        return claimService.submit(request.policyNumber(), request.plateNumber(), request.incidentDate(),
+                request.description(), request.estimatedAmount(), photos, AuthenticatedUser.current().id());
     }
 
     private ResponseEntity<ClaimResponse> created(Claim claim) {
         URI location = ServletUriComponentsBuilder.fromCurrentRequest().path("/{id}").buildAndExpand(claim.getId()).toUri();
-        return ResponseEntity.created(location).body(response(claim));
+        return ResponseEntity.created(location).body(responses.toResponse(claim));
     }
 
     /** Staff see any claim; a policyholder only their own. */
-    @GetMapping("/{id}")
-    public ClaimResponse get(@PathVariable UUID id) {
-        Claim claim = service.get(id);
-        ClaimAccess.assertCanRead(claim, CurrentUser.get());
-        return response(claim);
+    @GetMapping("/{claimId}")
+    public ClaimResponse get(@PathVariable UUID claimId) {
+        Claim claim = claimService.get(claimId);
+        ClaimAccessPolicy.assertCanRead(claim, AuthenticatedUser.current());
+        return responses.toResponse(claim);
     }
 
     /** Staff list everything (optionally by status); a policyholder gets only their own claims. */
     @GetMapping
     public Page<ClaimResponse> list(@RequestParam(required = false) ClaimStatus status,
                                     @PageableDefault(size = 20, sort = "createdAt", direction = Sort.Direction.DESC) Pageable pageable) {
-        CurrentUser me = CurrentUser.get();
-        Page<Claim> page = me.isStaff() ? service.list(status, pageable) : service.listOwnedBy(me.id(), status, pageable);
-        return page.map(this::response);
+        AuthenticatedUser user = AuthenticatedUser.current();
+        Page<Claim> page = user.isStaff() ? claimService.list(status, pageable) : claimService.listOwnedBy(user.id(), status, pageable);
+        return page.map(responses::toResponse);
     }
 
-    @GetMapping("/{id}/photos/{photoId}")
-    public ResponseEntity<byte[]> photo(@PathVariable UUID id, @PathVariable UUID photoId) {
-        ClaimAccess.assertCanRead(service.get(id), CurrentUser.get());
-        ClaimPhoto p = service.photo(id, photoId);
-        return ResponseEntity.ok().contentType(MediaType.parseMediaType(p.getContentType())).body(p.getData());
+    @GetMapping("/{claimId}/photos/{photoId}")
+    public ResponseEntity<byte[]> photo(@PathVariable UUID claimId, @PathVariable UUID photoId) {
+        ClaimAccessPolicy.assertCanRead(claimService.get(claimId), AuthenticatedUser.current());
+        ClaimPhoto photo = claimService.photo(claimId, photoId);
+        return ResponseEntity.ok().contentType(MediaType.parseMediaType(photo.getContentType())).body(photo.getData());
     }
 
     /** The owner (or an adjuster/admin) can withdraw. */
-    @PostMapping("/{id}/withdraw")
-    public ClaimResponse withdraw(@PathVariable UUID id) {
-        ClaimAccess.assertCanWithdraw(service.get(id), CurrentUser.get());
-        return response(service.withdraw(id));
+    @PostMapping("/{claimId}/withdraw")
+    public ClaimResponse withdraw(@PathVariable UUID claimId) {
+        ClaimAccessPolicy.assertCanWithdraw(claimService.get(claimId), AuthenticatedUser.current());
+        return responses.toResponse(claimService.withdraw(claimId));
     }
 
     /** PAYOUT_FAILED -> APPROVED, optionally with a corrected amount; payout-service reacts to the new CLAIM_APPROVED. */
-    @PostMapping("/{id}/retry-payout")
+    @PostMapping("/{claimId}/retry-payout")
     @PreAuthorize("hasAnyRole('FINANCE', 'ADMIN')")
-    public ClaimResponse retryPayout(@PathVariable UUID id, @Valid @RequestBody(required = false) RetryPayoutRequest body) {
-        return response(service.retryPayout(id, body == null ? null : body.approvedAmount()));
+    public ClaimResponse retryPayout(@PathVariable UUID claimId, @Valid @RequestBody(required = false) RetryPayoutRequest request) {
+        return responses.toResponse(claimService.retryPayout(claimId, request == null ? null : request.approvedAmount()));
     }
 }

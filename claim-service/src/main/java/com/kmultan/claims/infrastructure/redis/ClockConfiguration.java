@@ -6,11 +6,13 @@ import org.springframework.context.annotation.Configuration;
 
 import java.time.Clock;
 
+/** Injected clock so time-window logic (rate limiting) is testable without sleeping. */
 @Configuration
-public class TimeConfig {
+public class ClockConfiguration {
+
     @Bean
     @ConditionalOnMissingBean
-    Clock clock() {
+    public Clock clock() {
         return Clock.systemUTC();
     }
 }

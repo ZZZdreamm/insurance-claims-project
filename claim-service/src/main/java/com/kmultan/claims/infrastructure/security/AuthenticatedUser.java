@@ -1,6 +1,7 @@
 package com.kmultan.claims.infrastructure.security;
 
 import com.kmultan.claims.domain.auth.Role;
+import com.kmultan.platform.security.JwtClaims;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.oauth2.jwt.Jwt;
@@ -9,30 +10,32 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
-/** The authenticated caller, read from the verified JWT. */
-public record CurrentUser(UUID id, String username, Set<Role> roles) {
+/** The caller, as established by the verified bearer token. */
+public record AuthenticatedUser(UUID id, String username, Set<Role> roles) {
 
-    public static CurrentUser get() {
-        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
-        if (auth == null || !(auth.getPrincipal() instanceof Jwt jwt)) {
-            throw new IllegalStateException("No authenticated user");
+    public static AuthenticatedUser current() {
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        if (authentication == null || !(authentication.getPrincipal() instanceof Jwt jwt)) {
+            throw new IllegalStateException("No authenticated user in the security context");
         }
         return from(jwt);
     }
 
-    public static CurrentUser from(Jwt jwt) {
-        return new CurrentUser(UUID.fromString(jwt.getSubject()),
-                jwt.getClaimAsString(JwtTokens.USERNAME_CLAIM),
-                JwtTokens.rolesOf(jwt).stream().map(Role::valueOf).collect(Collectors.toSet()));
+    public static AuthenticatedUser from(Jwt jwt) {
+        return new AuthenticatedUser(UUID.fromString(jwt.getSubject()),
+                jwt.getClaimAsString(JwtClaims.PREFERRED_USERNAME),
+                JwtClaims.rolesOf(jwt).stream().map(Role::valueOf).collect(Collectors.toSet()));
     }
 
-    public boolean has(Role... any) {
-        for (Role r : any) if (roles.contains(r)) return true;
+    public boolean hasAnyRole(Role... candidates) {
+        for (Role candidate : candidates) {
+            if (roles.contains(candidate)) return true;
+        }
         return false;
     }
 
     /** Staff can see every claim; a policyholder only their own. */
     public boolean isStaff() {
-        return has(Role.ADJUSTER, Role.FINANCE, Role.ADMIN, Role.SERVICE);
+        return hasAnyRole(Role.ADJUSTER, Role.FINANCE, Role.ADMIN, Role.SERVICE);
     }
 }

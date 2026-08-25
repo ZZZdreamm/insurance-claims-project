@@ -38,17 +38,17 @@ public class ClaimService {
     private static final Logger log = LoggerFactory.getLogger(ClaimService.class);
 
     private final ClaimRepository claims;
-    private final ClaimPhotoRepository photos;
+    private final ClaimPhotoRepository claimPhotos;
     private final ClaimNumberGenerator claimNumbers;
     private final DomainEventPublisher events;
     private final ClaimMetrics metrics;
     private final Duration reviewSla;
 
-    public ClaimService(ClaimRepository claims, ClaimPhotoRepository photos, ClaimNumberGenerator claimNumbers,
+    public ClaimService(ClaimRepository claims, ClaimPhotoRepository claimPhotos, ClaimNumberGenerator claimNumbers,
                         DomainEventPublisher events, ClaimMetrics metrics,
                         @Value("${claims.review.sla}") Duration reviewSla) {
         this.claims = claims;
-        this.photos = photos;
+        this.claimPhotos = claimPhotos;
         this.claimNumbers = claimNumbers;
         this.events = events;
         this.metrics = metrics;
@@ -58,7 +58,7 @@ public class ClaimService {
     public record Photo(String contentType, byte[] data) {}
 
     private List<UUID> photoIds(UUID claimId) {
-        return photos.findByClaimIdOrderByCreatedAt(claimId).stream().map(ClaimPhoto::getId).toList();
+        return claimPhotos.findByClaimIdOrderByCreatedAt(claimId).stream().map(ClaimPhoto::getId).toList();
     }
 
     private void publish(ClaimEventType type, Claim claim) {
@@ -77,8 +77,8 @@ public class ClaimService {
                         String description, BigDecimal estimatedAmount, List<Photo> uploadedPhotos, UUID ownerId) {
         Claim claim = Claim.submit(claimNumbers.next(), policyNumber, plateNumber, incidentDate, description, estimatedAmount, ownerId);
         claims.save(claim);
-        for (Photo p : uploadedPhotos) {
-            photos.save(new ClaimPhoto(claim.getId(), p.contentType(), p.data()));
+        for (Photo uploadedPhoto : uploadedPhotos) {
+            claimPhotos.save(new ClaimPhoto(claim.getId(), uploadedPhoto.contentType(), uploadedPhoto.data()));
         }
         publish(ClaimEventType.CLAIM_SUBMITTED, claim);   // assessment-service reacts to this
         metrics.submitted();
@@ -103,12 +103,12 @@ public class ClaimService {
     @Transactional(readOnly = true)
     public List<ClaimPhoto> photosOf(UUID claimId) {
         get(claimId);
-        return photos.findByClaimIdOrderByCreatedAt(claimId);
+        return claimPhotos.findByClaimIdOrderByCreatedAt(claimId);
     }
 
     @Transactional(readOnly = true)
     public ClaimPhoto photo(UUID claimId, UUID photoId) {
-        return photos.findByIdAndClaimId(photoId, claimId).orElseThrow(() -> new ClaimNotFoundException(photoId));
+        return claimPhotos.findByIdAndClaimId(photoId, claimId).orElseThrow(() -> new ClaimNotFoundException(photoId));
     }
 
     // ---- triage ----

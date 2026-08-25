@@ -1,14 +1,12 @@
 package com.kmultan.claims.api;
 
-import com.kmultan.claims.api.ClaimDtos.ApproveRequest;
-import com.kmultan.claims.api.ClaimDtos.ClaimResponse;
-import com.kmultan.claims.api.ClaimDtos.RejectRequest;
+import com.kmultan.claims.api.dto.ApproveClaimRequest;
+import com.kmultan.claims.api.dto.ClaimResponse;
+import com.kmultan.claims.api.dto.RejectClaimRequest;
 import com.kmultan.claims.application.ClaimService;
-import com.kmultan.claims.domain.Claim;
-import com.kmultan.claims.domain.ClaimPhoto;
-import com.kmultan.claims.infrastructure.security.CurrentUser;
-import org.springframework.security.access.prepost.PreAuthorize;
+import com.kmultan.claims.infrastructure.security.AuthenticatedUser;
 import jakarta.validation.Valid;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -29,41 +27,39 @@ import java.util.UUID;
 @PreAuthorize("hasAnyRole('ADJUSTER', 'ADMIN')")
 public class ReviewController {
 
-    private final ClaimService service;
+    private final ClaimService claimService;
+    private final ClaimResponseAssembler responses;
 
-    public ReviewController(ClaimService service) {
-        this.service = service;
-    }
-
-    private ClaimResponse response(Claim c) {
-        return ClaimResponse.from(c, service.photosOf(c.getId()).stream().map(ClaimPhoto::getId).toList());
+    public ReviewController(ClaimService claimService, ClaimResponseAssembler responses) {
+        this.claimService = claimService;
+        this.responses = responses;
     }
 
     @GetMapping
-    public List<ClaimResponse> open() {
-        return service.openReviews().stream().map(this::response).toList();
+    public List<ClaimResponse> openReviews() {
+        return claimService.openReviews().stream().map(responses::toResponse).toList();
     }
 
-    @PostMapping("/{id}/claim")
-    public ClaimResponse claim(@PathVariable UUID id) {
-        return response(service.claimReview(id, CurrentUser.get().username()));
+    @PostMapping("/{claimId}/claim")
+    public ClaimResponse claimReview(@PathVariable UUID claimId) {
+        return responses.toResponse(claimService.claimReview(claimId, AuthenticatedUser.current().username()));
     }
 
-    @PostMapping("/{id}/unclaim")
-    public ClaimResponse unclaim(@PathVariable UUID id) {
-        ClaimAccess.assertHoldsReview(service.get(id), CurrentUser.get());
-        return response(service.unclaimReview(id));
+    @PostMapping("/{claimId}/unclaim")
+    public ClaimResponse unclaimReview(@PathVariable UUID claimId) {
+        ClaimAccessPolicy.assertHoldsReview(claimService.get(claimId), AuthenticatedUser.current());
+        return responses.toResponse(claimService.unclaimReview(claimId));
     }
 
-    @PostMapping("/{id}/approve")
-    public ClaimResponse approve(@PathVariable UUID id, @Valid @RequestBody ApproveRequest body) {
-        ClaimAccess.assertHoldsReview(service.get(id), CurrentUser.get());
-        return response(service.approve(id, body.approvedAmount()));
+    @PostMapping("/{claimId}/approve")
+    public ClaimResponse approve(@PathVariable UUID claimId, @Valid @RequestBody ApproveClaimRequest request) {
+        ClaimAccessPolicy.assertHoldsReview(claimService.get(claimId), AuthenticatedUser.current());
+        return responses.toResponse(claimService.approve(claimId, request.approvedAmount()));
     }
 
-    @PostMapping("/{id}/reject")
-    public ClaimResponse reject(@PathVariable UUID id, @Valid @RequestBody RejectRequest body) {
-        ClaimAccess.assertHoldsReview(service.get(id), CurrentUser.get());
-        return response(service.reject(id, body.reason()));
+    @PostMapping("/{claimId}/reject")
+    public ClaimResponse reject(@PathVariable UUID claimId, @Valid @RequestBody RejectClaimRequest request) {
+        ClaimAccessPolicy.assertHoldsReview(claimService.get(claimId), AuthenticatedUser.current());
+        return responses.toResponse(claimService.reject(claimId, request.reason()));
     }
 }

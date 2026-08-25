@@ -30,7 +30,7 @@ import java.util.UUID;
 @PactFolder("../contracts/pacts")
 class ClaimEventsContractTest {
 
-    private final ObjectMapper json = new ObjectMapper().registerModule(new JavaTimeModule())
+    private final ObjectMapper objectMapper = new ObjectMapper().registerModule(new JavaTimeModule())
             .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
 
     @BeforeEach
@@ -50,6 +50,6 @@ class ClaimEventsContractTest {
                 "Rear bumper dented in a parking lot", new BigDecimal("1200.00"));
         claim.completeAssessment(com.kmultan.claims.domain.Severity.MODERATE, new BigDecimal("1500.00"), "test", null);
         claim.approve(new BigDecimal("1400.00"));
-        return json.writeValueAsString(ClaimEvent.of(ClaimEventType.CLAIM_APPROVED, claim, List.of(UUID.randomUUID())));
+        return objectMapper.writeValueAsString(ClaimEvent.of(ClaimEventType.CLAIM_APPROVED, claim, List.of(UUID.randomUUID())));
     }
 }

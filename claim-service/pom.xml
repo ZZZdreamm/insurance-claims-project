@@ -22,6 +22,9 @@
   </properties>
 
   <dependencies>
+    <dependency><groupId>com.kmultan.claims</groupId><artifactId>platform-commons</artifactId><version>${project.version}</version></dependency>
+    <dependency><groupId>com.kmultan.claims</groupId><artifactId>platform-outbox</artifactId><version>${project.version}</version></dependency>
+    <dependency><groupId>com.kmultan.claims</groupId><artifactId>platform-commons</artifactId><version>${project.version}</version><type>test-jar</type><scope>test</scope></dependency>
     <dependency>
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-web</artifactId>
@@ -58,37 +61,6 @@
     <dependency>
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-data-redis</artifactId>   <!-- idempotency keys + rate limiting -->
-    </dependency>
-    <dependency>
-      <groupId>org.springframework.boot</groupId>
-      <artifactId>spring-boot-starter-security</artifactId>
-    </dependency>
-    <dependency>
-      <groupId>org.springframework.boot</groupId>
-      <artifactId>spring-boot-starter-oauth2-resource-server</artifactId>   <!-- JWT encode/decode (Nimbus), bearer auth -->
-    </dependency>
-
-    <!-- observability: Prometheus metrics, OTel traces over OTLP, logs pushed to Loki -->
-    <dependency>
-      <groupId>io.micrometer</groupId>
-      <artifactId>micrometer-registry-prometheus</artifactId>
-    </dependency>
-    <dependency>
-      <groupId>io.micrometer</groupId>
-      <artifactId>micrometer-tracing-bridge-otel</artifactId>
-    </dependency>
-    <dependency>
-      <groupId>io.opentelemetry</groupId>
-      <artifactId>opentelemetry-exporter-otlp</artifactId>
-    </dependency>
-    <dependency>
-      <groupId>com.github.loki4j</groupId>
-      <artifactId>loki-logback-appender</artifactId>
-      <version>1.5.2</version>
-    </dependency>
-    <dependency>
-      <groupId>org.codehaus.janino</groupId>
-      <artifactId>janino</artifactId>   <!-- logback conditional config -->
     </dependency>
 
     <!-- test -->

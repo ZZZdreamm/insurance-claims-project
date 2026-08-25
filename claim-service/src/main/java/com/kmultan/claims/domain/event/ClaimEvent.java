@@ -38,11 +38,11 @@ public record ClaimEvent(
             boolean escalated,
             List<UUID> photoIds
     ) {
-        public static ClaimSnapshot of(Claim c, List<UUID> photoIds) {
-            return new ClaimSnapshot(c.getClaimNumber(), c.getPolicyNumber(), c.getPlateNumber(),
-                    c.getIncidentDate(), c.getDescription(), c.getEstimatedAmount(), c.getApprovedAmount(),
-                    c.getStatus(), c.getRejectionReason(), c.getSeverity(), c.getReviewAssignee(),
-                    c.getReviewDueAt(), c.getEscalatedAt() != null, photoIds);
+        public static ClaimSnapshot of(Claim claim, List<UUID> photoIds) {
+            return new ClaimSnapshot(claim.getClaimNumber(), claim.getPolicyNumber(), claim.getPlateNumber(),
+                    claim.getIncidentDate(), claim.getDescription(), claim.getEstimatedAmount(), claim.getApprovedAmount(),
+                    claim.getStatus(), claim.getRejectionReason(), claim.getSeverity(), claim.getReviewAssignee(),
+                    claim.getReviewDueAt(), claim.getEscalatedAt() != null, photoIds);
         }
     }
 

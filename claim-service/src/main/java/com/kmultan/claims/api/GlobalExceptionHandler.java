@@ -2,6 +2,7 @@ package com.kmultan.claims.api;
 
 import com.kmultan.claims.domain.ClaimNotFoundException;
 import com.kmultan.claims.domain.InvalidStateTransitionException;
+import com.kmultan.platform.web.ProblemDetails;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
@@ -12,55 +13,49 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 import java.util.List;
 
-/** Maps domain errors to RFC 9457 problem+json responses. */
+/** Maps domain and access errors to RFC 9457 problem+json responses. */
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
     @ExceptionHandler(ClaimNotFoundException.class)
-    ProblemDetail notFound(ClaimNotFoundException e) {
-        return problem(HttpStatus.NOT_FOUND, "Claim not found", e.getMessage());
+    ProblemDetail notFound(ClaimNotFoundException exception) {
+        return ProblemDetails.of(HttpStatus.NOT_FOUND, "Claim not found", exception.getMessage());
     }
 
     @ExceptionHandler(AccessDeniedException.class)
-    ProblemDetail forbidden(AccessDeniedException e) {
-        return problem(HttpStatus.FORBIDDEN, "Forbidden", e.getMessage());
+    ProblemDetail forbidden(AccessDeniedException exception) {
+        return ProblemDetails.of(HttpStatus.FORBIDDEN, "Forbidden", exception.getMessage());
     }
 
     @ExceptionHandler(IllegalStateException.class)
-    ProblemDetail conflict(IllegalStateException e) {
-        return problem(HttpStatus.CONFLICT, "Conflict", e.getMessage());
+    ProblemDetail conflict(IllegalStateException exception) {
+        return ProblemDetails.of(HttpStatus.CONFLICT, "Conflict", exception.getMessage());
     }
 
     @ExceptionHandler(InvalidStateTransitionException.class)
-    ProblemDetail invalidTransition(InvalidStateTransitionException e) {
-        return problem(HttpStatus.CONFLICT, "Invalid state transition", e.getMessage());
+    ProblemDetail invalidTransition(InvalidStateTransitionException exception) {
+        return ProblemDetails.of(HttpStatus.CONFLICT, "Invalid state transition", exception.getMessage());
     }
 
     @ExceptionHandler(ObjectOptimisticLockingFailureException.class)
-    ProblemDetail optimisticLock(ObjectOptimisticLockingFailureException e) {
-        return problem(HttpStatus.CONFLICT, "Concurrent modification",
+    ProblemDetail optimisticLock(ObjectOptimisticLockingFailureException exception) {
+        return ProblemDetails.of(HttpStatus.CONFLICT, "Concurrent modification",
                 "The claim was modified by someone else. Reload and retry.");
     }
 
     @ExceptionHandler(IllegalArgumentException.class)
-    ProblemDetail badArgument(IllegalArgumentException e) {
-        return problem(HttpStatus.UNPROCESSABLE_ENTITY, "Business rule violated", e.getMessage());
+    ProblemDetail businessRuleViolated(IllegalArgumentException exception) {
+        return ProblemDetails.of(HttpStatus.UNPROCESSABLE_ENTITY, "Business rule violated", exception.getMessage());
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
-    ProblemDetail validation(MethodArgumentNotValidException e) {
-        List<String> errors = e.getBindingResult().getFieldErrors().stream()
-                .map(f -> f.getField() + ": " + f.getDefaultMessage())
+    ProblemDetail validation(MethodArgumentNotValidException exception) {
+        List<String> errors = exception.getBindingResult().getFieldErrors().stream()
+                .map(fieldError -> fieldError.getField() + ": " + fieldError.getDefaultMessage())
                 .sorted()
                 .toList();
-        ProblemDetail pd = problem(HttpStatus.BAD_REQUEST, "Validation failed", "Request body is invalid");
-        pd.setProperty("errors", errors);
-        return pd;
-    }
-
-    private static ProblemDetail problem(HttpStatus status, String title, String detail) {
-        ProblemDetail pd = ProblemDetail.forStatusAndDetail(status, detail);
-        pd.setTitle(title);
-        return pd;
+        ProblemDetail problemDetail = ProblemDetails.of(HttpStatus.BAD_REQUEST, "Validation failed", "Request body is invalid");
+        problemDetail.setProperty("errors", errors);
+        return problemDetail;
     }
 }

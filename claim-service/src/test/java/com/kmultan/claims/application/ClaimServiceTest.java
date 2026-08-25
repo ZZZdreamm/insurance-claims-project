@@ -1,5 +1,6 @@
 package com.kmultan.claims.application;
 
+import com.kmultan.claims.application.assessment.Assessment;
 import com.kmultan.claims.domain.Claim;
 import com.kmultan.claims.domain.ClaimNotFoundException;
 import com.kmultan.claims.domain.ClaimNumberGenerator;
@@ -37,71 +38,72 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 class ClaimServiceTest {
 
-    @Mock ClaimRepository repository;
-    @Mock ClaimPhotoRepository photos;
-    @Mock ClaimNumberGenerator numbers;
-    @Mock DomainEventPublisher events;
-    ClaimService service;
+    @Mock ClaimRepository claimRepository;
+    @Mock ClaimPhotoRepository claimPhotos;
+    @Mock ClaimNumberGenerator claimNumbers;
+    @Mock DomainEventPublisher eventPublisher;
+    ClaimService claimService;
 
     @BeforeEach
     void setUp() {
-        service = new ClaimService(repository, photos, numbers, events, new ClaimMetrics(new SimpleMeterRegistry()), Duration.ofHours(48));
+        claimService = new ClaimService(claimRepository, claimPhotos, claimNumbers, eventPublisher,
+                new ClaimMetrics(new SimpleMeterRegistry()), Duration.ofHours(48));
     }
 
-    private ClaimEvent lastEvent() {
+    private ClaimEvent publishedEvent() {
         ArgumentCaptor<ClaimEvent> captor = ArgumentCaptor.forClass(ClaimEvent.class);
-        verify(events).publish(captor.capture());
+        verify(eventPublisher).publish(captor.capture());
         return captor.getValue();
     }
 
     @Test
     void submitStoresPhotosAndPublishesSubmittedWithPhotoIds() {
-        when(numbers.next()).thenReturn("CLM-2026-000007");
-        when(repository.save(any(Claim.class))).thenAnswer(inv -> inv.getArgument(0));
-        ClaimPhoto stored = new ClaimPhoto(UUID.randomUUID(), "image/jpeg", new byte[]{1, 2, 3});
-        when(photos.findByClaimIdOrderByCreatedAt(any())).thenReturn(List.of(stored));
+        when(claimNumbers.next()).thenReturn("CLM-2026-000007");
+        when(claimRepository.save(any(Claim.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        ClaimPhoto storedPhoto = new ClaimPhoto(UUID.randomUUID(), "image/jpeg", new byte[]{1, 2, 3});
+        when(claimPhotos.findByClaimIdOrderByCreatedAt(any())).thenReturn(List.of(storedPhoto));
 
-        Claim c = service.submit("POL-9", "KR 1A234", LocalDate.now(), "Windscreen cracked by stone", null,
+        Claim claim = claimService.submit("POL-9", "KR 1A234", LocalDate.now(), "Windscreen cracked by stone", null,
                 List.of(new ClaimService.Photo("image/jpeg", new byte[]{1, 2, 3})));
 
-        assertThat(c.getClaimNumber()).isEqualTo("CLM-2026-000007");
-        assertThat(c.getStatus()).isEqualTo(ClaimStatus.SUBMITTED);
-        verify(photos).save(any(ClaimPhoto.class));
-        ClaimEvent e = lastEvent();
-        assertThat(e.eventType()).isEqualTo(ClaimEventType.CLAIM_SUBMITTED);
-        assertThat(e.claim().photoIds()).containsExactly(stored.getId());
+        assertThat(claim.getClaimNumber()).isEqualTo("CLM-2026-000007");
+        assertThat(claim.getStatus()).isEqualTo(ClaimStatus.SUBMITTED);
+        verify(claimPhotos).save(any(ClaimPhoto.class));
+        ClaimEvent event = publishedEvent();
+        assertThat(event.eventType()).isEqualTo(ClaimEventType.CLAIM_SUBMITTED);
+        assertThat(event.claim().photoIds()).containsExactly(storedPhoto.getId());
     }
 
     @Test
     void getThrowsWhenMissing() {
-        UUID id = UUID.randomUUID();
-        when(repository.findById(id)).thenReturn(Optional.empty());
-        assertThatThrownBy(() -> service.get(id)).isInstanceOf(ClaimNotFoundException.class);
+        UUID claimId = UUID.randomUUID();
+        when(claimRepository.findById(claimId)).thenReturn(Optional.empty());
+        assertThatThrownBy(() -> claimService.get(claimId)).isInstanceOf(ClaimNotFoundException.class);
     }
 
     @Test
     void lateAssessmentForMovedOnClaimIsIgnored() {
-        Claim c = Claim.submit("n", "p", "x", LocalDate.now(), "some description", null);
-        c.withdraw();
-        when(repository.findById(c.getId())).thenReturn(Optional.of(c));
+        Claim claim = Claim.submit("n", "p", "x", LocalDate.now(), "some description", null);
+        claim.withdraw();
+        when(claimRepository.findById(claim.getId())).thenReturn(Optional.of(claim));
 
-        service.completeAssessment(c.getId(), new com.kmultan.claims.application.assessment.Assessment(Severity.MINOR, BigDecimal.TEN, "x"));
+        claimService.completeAssessment(claim.getId(), new Assessment(Severity.MINOR, BigDecimal.TEN, "x"));
 
-        assertThat(c.getStatus()).isEqualTo(ClaimStatus.WITHDRAWN);
-        verify(events, never()).publish(any());
+        assertThat(claim.getStatus()).isEqualTo(ClaimStatus.WITHDRAWN);
+        verify(eventPublisher, never()).publish(any());
     }
 
     @Test
     void payoutIssuedForNonApprovedClaimRequestsReversal() {
-        Claim c = Claim.submit("n", "p", "x", LocalDate.now(), "some description", null);
-        c.completeAssessment(Severity.MINOR, null, "t", Instant.now());
-        c.approve(BigDecimal.TEN);
-        c.withdraw();
-        when(repository.findById(c.getId())).thenReturn(Optional.of(c));
+        Claim claim = Claim.submit("n", "p", "x", LocalDate.now(), "some description", null);
+        claim.completeAssessment(Severity.MINOR, null, "t", Instant.now());
+        claim.approve(BigDecimal.TEN);
+        claim.withdraw();
+        when(claimRepository.findById(claim.getId())).thenReturn(Optional.of(claim));
 
-        service.acceptPayout(c.getId());
+        claimService.acceptPayout(claim.getId());
 
-        assertThat(c.getStatus()).isEqualTo(ClaimStatus.WITHDRAWN);
-        assertThat(lastEvent().eventType()).isEqualTo(ClaimEventType.PAYOUT_UNACCEPTED);
+        assertThat(claim.getStatus()).isEqualTo(ClaimStatus.WITHDRAWN);
+        assertThat(publishedEvent().eventType()).isEqualTo(ClaimEventType.PAYOUT_UNACCEPTED);
     }
 }
