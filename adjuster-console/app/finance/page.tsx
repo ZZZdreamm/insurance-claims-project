@@ -16,7 +16,7 @@ function FailedRow({ claim, onChange, onError }: { claim: Claim; onChange: () =>
       <td className="badge bad">{claim.payoutFailureReason}</td>
       <td className="num">{formatMoney(claim.approvedAmount)}</td>
       <td><div className="actions"><input className="inline-input" type="number" min="0.01" step="0.01" value={amount} onChange={(event) => setAmount(event.target.value)} />
-        <button className="btn sm primary" onClick={() => api.retryPayout(claim.id, Number(amount) || undefined).then(onChange).catch(onError)}>Ponów wypłatę</button></div></td>
+        <button className="btn sm primary" onClick={() => api.retryPayout(claim.id, Number(amount) || undefined).then(onChange).catch(onError)}>Retry payout</button></div></td>
     </tr>
   );
 }
@@ -39,30 +39,30 @@ export default function Finance() {
 
   return (
     <RequireRole roles={['FINANCE', 'ADMIN']}>
-      <Shell title="Wypłaty" subtitle="Nieudane wypłaty do ponowienia, wypłaty w toku i księga płatności">
+      <Shell title="Payouts" subtitle="Failed payouts to retry, payouts in progress and the payment ledger">
         <div className="grid cols-4" style={{ marginBottom: '1rem' }}>
-          <Stat label="Nieudane wypłaty" value={failed.length} hint="wymagają decyzji" />
-          <Stat label="W trakcie wypłaty" value={approved.length} hint={formatMoney(approved.reduce((sum, claim) => sum + (claim.approvedAmount ?? 0), 0))} />
-          <Stat label="Wypłacono (szkody)" value={paid.length} hint={formatMoney(paid.reduce((sum, claim) => sum + (claim.approvedAmount ?? 0), 0))} />
-          <Stat label="Księga: przelewy" value={ledger ? ledger.payoutsIssued : '—'} hint={ledger ? `${formatMoney(ledger.totalIssued)} · ${ledger.payoutsFailed} nieudane · ${ledger.payoutsReversed} cofnięte` : ledgerNote ?? '…'} />
+          <Stat label="Failed payouts" value={failed.length} hint="need a decision" />
+          <Stat label="Payout in progress" value={approved.length} hint={formatMoney(approved.reduce((sum, claim) => sum + (claim.approvedAmount ?? 0), 0))} />
+          <Stat label="Paid (claims)" value={paid.length} hint={formatMoney(paid.reduce((sum, claim) => sum + (claim.approvedAmount ?? 0), 0))} />
+          <Stat label="Ledger: transfers" value={ledger ? ledger.payoutsIssued : '—'} hint={ledger ? `${formatMoney(ledger.totalIssued)} · ${ledger.payoutsFailed} failed · ${ledger.payoutsReversed} reversed` : ledgerNote ?? '…'} />
         </div>
         {error && <Alert kind="error">{error}</Alert>}
         <div className="card table-wrap">
-          <h2>Nieudane wypłaty</h2>
+          <h2>Failed payouts</h2>
           <table>
-            <thead><tr><th>Szkoda</th><th>Powód</th><th className="num">Kwota</th><th>Ponów</th></tr></thead>
+            <thead><tr><th>Claim</th><th>Reason</th><th className="num">Amount</th><th>Retry</th></tr></thead>
             <tbody>
               {failed.map((claim) => <FailedRow key={claim.id} claim={claim} onChange={refresh} onError={setError} />)}
-              {failed.length === 0 && <tr><td colSpan={4} className="empty">Brak nieudanych wypłat.</td></tr>}
+              {failed.length === 0 && <tr><td colSpan={4} className="empty">No failed payouts.</td></tr>}
             </tbody>
           </table>
         </div>
         <div className="card table-wrap">
-          <h2>Księga płatności (payout-service)</h2>
+          <h2>Payment ledger (payout-service)</h2>
           {ledgerNote && <Alert kind="info">{ledgerNote}</Alert>}
           {ledger && (
             <table>
-              <thead><tr><th>Szkoda</th><th className="num">Rezerwacja</th><th>Stan rezerwacji</th><th className="num">Przelew</th><th>Stan przelewu</th><th>Referencja</th><th>Aktualizacja</th></tr></thead>
+              <thead><tr><th>Claim</th><th className="num">Reservation</th><th>Reservation state</th><th className="num">Transfer</th><th>Transfer state</th><th>Reference</th><th>Updated</th></tr></thead>
               <tbody>
                 {ledger.entries.map((entry) => (
                   <tr key={entry.claimId}>
@@ -75,18 +75,18 @@ export default function Finance() {
                     <td className="nowrap">{formatDateTime(entry.updatedAt)}</td>
                   </tr>
                 ))}
-                {ledger.entries.length === 0 && <tr><td colSpan={7} className="empty">Księga jest pusta.</td></tr>}
+                {ledger.entries.length === 0 && <tr><td colSpan={7} className="empty">The ledger is empty.</td></tr>}
               </tbody>
             </table>
           )}
         </div>
         <div className="card table-wrap">
-          <h2>Wypłacone</h2>
+          <h2>Paid</h2>
           <table>
-            <thead><tr><th>Szkoda</th><th>Polisa</th><th className="num">Kwota</th><th>Referencja</th><th>Data</th><th>Status</th></tr></thead>
+            <thead><tr><th>Claim</th><th>Policy</th><th className="num">Amount</th><th>Reference</th><th>Date</th><th>Status</th></tr></thead>
             <tbody>
               {paid.map((claim) => <tr key={claim.id}><td><Link href={`/claims/${claim.id}`}>{claim.claimNumber}</Link></td><td>{claim.policyNumber}</td><td className="num">{formatMoney(claim.approvedAmount)}</td><td className="mono small">{claim.payoutReference ?? '—'}</td><td className="nowrap">{formatDateTime(claim.paidAt ?? claim.updatedAt)}</td><td><StatusBadge status={claim.status} /></td></tr>)}
-              {paid.length === 0 && <tr><td colSpan={6} className="empty">Brak.</td></tr>}
+              {paid.length === 0 && <tr><td colSpan={6} className="empty">None.</td></tr>}
             </tbody>
           </table>
         </div>

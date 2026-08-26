@@ -4,9 +4,9 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { api } from '../api';
 import type { Claim, ClaimStatus, Severity } from '../types';
 
-export const formatDateTime = (iso: string | null | undefined) => (iso ? new Date(iso).toLocaleString('pl-PL') : '—');
+export const formatDateTime = (iso: string | null | undefined) => (iso ? new Date(iso).toLocaleString('en-GB') : '—');
 export const formatMoney = (value: number | null | undefined) =>
-  value == null ? '—' : new Intl.NumberFormat('pl-PL', { style: 'currency', currency: 'PLN', maximumFractionDigits: 2 }).format(value);
+  value == null ? '—' : new Intl.NumberFormat('en-GB', { style: 'currency', currency: 'PLN', maximumFractionDigits: 2 }).format(value);
 export const formatDuration = (seconds: number | null | undefined) => {
   if (seconds == null) return '—';
   if (seconds < 90) return `${Math.round(seconds)} s`;
@@ -16,15 +16,15 @@ export const formatDuration = (seconds: number | null | undefined) => {
 export const formatBytes = (bytes: number) => `${(bytes / 1024 / 1024).toFixed(0)} MB`;
 
 const STATUS_LABEL: Record<ClaimStatus, [string, string]> = {
-  SUBMITTED: ['zgłoszona', 'info'], PENDING_REVIEW: ['do oceny', 'warn'], APPROVED: ['zatwierdzona', 'info'],
-  REJECTED: ['odrzucona', 'bad'], PAID: ['wypłacona', 'ok'], PAYOUT_FAILED: ['wypłata nieudana', 'bad'], WITHDRAWN: ['wycofana', ''],
+  SUBMITTED: ['submitted', 'info'], PENDING_REVIEW: ['pending review', 'warn'], APPROVED: ['approved', 'info'],
+  REJECTED: ['rejected', 'bad'], PAID: ['paid', 'ok'], PAYOUT_FAILED: ['payout failed', 'bad'], WITHDRAWN: ['withdrawn', ''],
 };
 export function StatusBadge({ status }: { status: ClaimStatus }) {
   const [label, tone] = STATUS_LABEL[status] ?? [status, ''];
   return <span className={`badge ${tone}`}>{label}</span>;
 }
 export function SeverityBadge({ severity }: { severity: Severity | null | undefined }) {
-  return severity ? <span className={`badge ${severity}`}>{severity}</span> : <span className="badge">brak oceny</span>;
+  return severity ? <span className={`badge ${severity}`}>{severity}</span> : <span className="badge">not assessed</span>;
 }
 
 export function Stat({ label, value, hint }: { label: string; value: ReactNode; hint?: ReactNode }) {
@@ -69,10 +69,10 @@ export function Photos({ claim, large }: { claim: Claim; large?: boolean }) {
       .catch(() => {});
     return () => { alive = false; }; // cached URLs stay valid; nothing to revoke here
   }, [claim.id, photoKey]);
-  if (claim.photoIds.length === 0) return <span className="faint small">brak zdjęć</span>;
+  if (claim.photoIds.length === 0) return <span className="faint small">no photos</span>;
   return (
     <div className={`photos ${large ? 'large' : ''}`}>
-      {urls.map((url, index) => <a key={url} href={url} target="_blank" rel="noreferrer"><img src={url} alt={`uszkodzenie ${index + 1}`} /></a>)}
+      {urls.map((url, index) => <a key={url} href={url} target="_blank" rel="noreferrer"><img src={url} alt={`damage ${index + 1}`} /></a>)}
     </div>
   );
 }

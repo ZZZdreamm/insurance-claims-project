@@ -27,38 +27,38 @@ export function ClaimActions({ claim, onChange }: { claim: Claim; onChange: () =
   const buttons: React.ReactNode[] = [];
   if (claim.status === 'PENDING_REVIEW' && isAdjuster) {
     if (!claim.reviewAssignee) {
-      buttons.push(<button key="take" className="btn primary" disabled={busy} onClick={() => run(() => api.claimReview(claim.id))}>Przejmij sprawę</button>);
+      buttons.push(<button key="take" className="btn primary" disabled={busy} onClick={() => run(() => api.claimReview(claim.id))}>Take the review</button>);
     } else if (holdsReview) {
       buttons.push(
         <span key="approve" className="actions">
           <input className="inline-input" type="number" min="0.01" step="0.01" value={amount} onChange={(event) => setAmount(event.target.value)} />
-          <button className="btn primary" disabled={busy} onClick={() => run(() => api.approve(claim.id, Number(amount)))}>Zatwierdź kwotę</button>
+          <button className="btn primary" disabled={busy} onClick={() => run(() => api.approve(claim.id, Number(amount)))}>Approve amount</button>
         </span>,
         <span key="reject" className="actions">
-          <input className="inline-input" style={{ width: 200 }} placeholder="powód odrzucenia" value={reason} onChange={(event) => setReason(event.target.value)} />
-          <button className="btn danger" disabled={busy || !reason} onClick={() => run(() => api.reject(claim.id, reason))}>Odrzuć</button>
+          <input className="inline-input" style={{ width: 200 }} placeholder="rejection reason" value={reason} onChange={(event) => setReason(event.target.value)} />
+          <button className="btn danger" disabled={busy || !reason} onClick={() => run(() => api.reject(claim.id, reason))}>Reject</button>
         </span>,
-        <button key="unclaim" className="btn" disabled={busy} onClick={() => run(() => api.unclaimReview(claim.id))}>Oddaj sprawę</button>,
+        <button key="unclaim" className="btn" disabled={busy} onClick={() => run(() => api.unclaimReview(claim.id))}>Release the review</button>,
       );
     } else {
-      buttons.push(<span key="held" className="muted">Sprawę prowadzi <strong>{claim.reviewAssignee}</strong></span>);
+      buttons.push(<span key="held" className="muted">Review held by <strong>{claim.reviewAssignee}</strong></span>);
     }
   }
   if (claim.status === 'PAYOUT_FAILED' && has('FINANCE', 'ADMIN')) {
     buttons.push(
       <span key="retry" className="actions">
         <input className="inline-input" type="number" min="0.01" step="0.01" value={amount} onChange={(event) => setAmount(event.target.value)} />
-        <button className="btn primary" disabled={busy} onClick={() => run(() => api.retryPayout(claim.id, Number(amount) || undefined))}>Ponów wypłatę</button>
+        <button className="btn primary" disabled={busy} onClick={() => run(() => api.retryPayout(claim.id, Number(amount) || undefined))}>Retry payout</button>
       </span>,
     );
   }
   if (!terminal && (isOwner || has('ADJUSTER', 'ADMIN'))) {
-    buttons.push(<button key="withdraw" className="btn danger" disabled={busy} onClick={() => { if (window.confirm('Wycofać tę szkodę? Tej operacji nie można cofnąć.')) void run(() => api.withdraw(claim.id)); }}>Wycofaj szkodę</button>);
+    buttons.push(<button key="withdraw" className="btn danger" disabled={busy} onClick={() => { if (window.confirm('Withdraw this claim? This cannot be undone.')) void run(() => api.withdraw(claim.id)); }}>Withdraw claim</button>);
   }
   if (buttons.length === 0) return null;
   return (
     <div className="card">
-      <h2>Akcje</h2>
+      <h2>Actions</h2>
       <div className="actions" style={{ gap: '0.8rem' }}>{buttons}</div>
       {error && <Alert kind="error">{error}</Alert>}
     </div>

@@ -23,29 +23,29 @@ function SubmitForm({ onDone, onError }: { onDone: () => void; onError: (error: 
     try {
       const claim = await api.submit({ policyNumber: policy, plateNumber: plate, incidentDate: date, description, estimatedAmount: amount ? Number(amount) : null }, photos);
       setDescription(''); setAmount(''); setPhotos([]);
-      setDone(`Zgłoszenie ${claim.claimNumber} przyjęte — ocena automatyczna trwa kilka sekund.`);
+      setDone(`Claim ${claim.claimNumber} accepted — automated assessment takes a few seconds.`);
       onDone();
     } catch (error) { onError(error); } finally { setBusy(false); }
   };
 
   return (
     <form className="card" onSubmit={submit}>
-      <h2>Zgłoś nową szkodę</h2>
+      <h2>Report a new claim</h2>
       <div className="form-grid">
-        <label className="field">Numer polisy<input value={policy} onChange={(event) => setPolicy(event.target.value)} required /></label>
-        <label className="field">Tablica rejestracyjna<input value={plate} onChange={(event) => setPlate(event.target.value)} required /></label>
-        <label className="field">Data zdarzenia<input type="date" value={date} onChange={(event) => setDate(event.target.value)} required /></label>
-        <label className="field">Szacunkowa kwota (PLN)<input type="number" min="0" step="0.01" value={amount} onChange={(event) => setAmount(event.target.value)} /></label>
+        <label className="field">Policy number<input value={policy} onChange={(event) => setPolicy(event.target.value)} required /></label>
+        <label className="field">Plate number<input value={plate} onChange={(event) => setPlate(event.target.value)} required /></label>
+        <label className="field">Incident date<input type="date" value={date} onChange={(event) => setDate(event.target.value)} required /></label>
+        <label className="field">Estimated amount (PLN)<input type="number" min="0" step="0.01" value={amount} onChange={(event) => setAmount(event.target.value)} /></label>
       </div>
-      <label className="field" style={{ marginTop: '0.9rem' }}>Opis uszkodzeń
-        <textarea value={description} onChange={(event) => setDescription(event.target.value)} minLength={10} required rows={3} placeholder="Co się stało i co jest uszkodzone (min. 10 znaków)" />
+      <label className="field" style={{ marginTop: '0.9rem' }}>Damage description
+        <textarea value={description} onChange={(event) => setDescription(event.target.value)} minLength={10} required rows={3} placeholder="What happened and what is damaged (min. 10 characters)" />
       </label>
-      <label className="field" style={{ marginTop: '0.9rem' }}>Zdjęcia (JPEG/PNG/WebP, do 8 MB)
+      <label className="field" style={{ marginTop: '0.9rem' }}>Photos (JPEG/PNG/WebP, up to 8 MB)
         <input type="file" accept="image/*" multiple onChange={(event) => setPhotos(Array.from(event.target.files ?? []))} />
       </label>
       <div className="actions" style={{ marginTop: '1rem' }}>
-        <button className="btn primary" type="submit" disabled={busy}>{busy ? 'Wysyłanie…' : 'Wyślij zgłoszenie'}</button>
-        {photos.length > 0 && <span className="muted small">{photos.length} zdjęć</span>}
+        <button className="btn primary" type="submit" disabled={busy}>{busy ? 'Submitting…' : 'Submit claim'}</button>
+        {photos.length > 0 && <span className="muted small">{photos.length} photo(s)</span>}
       </div>
       {done && <Alert kind="ok">{done}</Alert>}
     </form>
@@ -63,18 +63,18 @@ export default function MyClaims() {
 
   return (
     <RequireRole roles={['POLICYHOLDER', 'ADMIN']}>
-      <Shell title="Moje szkody" subtitle="Zgłoszenia, ich status i wypłaty">
+      <Shell title="My claims" subtitle="Your claims, their status and payouts">
         <div className="grid cols-3" style={{ marginBottom: '1rem' }}>
-          <div className="card stat"><div className="label">Wszystkie zgłoszenia</div><div className="value">{claims.length}</div></div>
-          <div className="card stat"><div className="label">W toku</div><div className="value">{active.length}</div></div>
-          <div className="card stat"><div className="label">Wypłacono łącznie</div><div className="value">{formatMoney(paid)}</div></div>
+          <div className="card stat"><div className="label">All claims</div><div className="value">{claims.length}</div></div>
+          <div className="card stat"><div className="label">In progress</div><div className="value">{active.length}</div></div>
+          <div className="card stat"><div className="label">Paid in total</div><div className="value">{formatMoney(paid)}</div></div>
         </div>
         <SubmitForm onDone={() => void refresh()} onError={setError} />
         {error && <Alert kind="error">{error}</Alert>}
         <div className="card table-wrap" style={{ marginTop: '1rem' }}>
-          <h2>Zgłoszenia</h2>
+          <h2>Claims</h2>
           <table>
-            <thead><tr><th>Szkoda</th><th>Opis</th><th>Status</th><th>Ocena</th><th className="num">Kwota</th><th>Zgłoszono</th><th></th></tr></thead>
+            <thead><tr><th>Claim</th><th>Description</th><th>Status</th><th>Assessment</th><th className="num">Amount</th><th>Submitted</th><th></th></tr></thead>
             <tbody>
               {claims.map((claim) => (
                 <tr key={claim.id}>
@@ -82,16 +82,16 @@ export default function MyClaims() {
                   <td>{claim.description}<Photos claim={claim} /></td>
                   <td><StatusBadge status={claim.status} />
                     {claim.rejectionReason && <div className="muted small">{claim.rejectionReason}</div>}
-                    {claim.payoutFailureReason && <div className="muted small">wypłata: {claim.payoutFailureReason}</div>}
-                    {claim.paidAt && <div className="muted small">wypłacono {formatDateTime(claim.paidAt)}{claim.payoutReference && <> · ref. <span className="mono">{claim.payoutReference}</span></>}</div>}</td>
+                    {claim.payoutFailureReason && <div className="muted small">payout: {claim.payoutFailureReason}</div>}
+                    {claim.paidAt && <div className="muted small">paid {formatDateTime(claim.paidAt)}{claim.payoutReference && <> · ref <span className="mono">{claim.payoutReference}</span></>}</div>}</td>
                   <td><SeverityBadge severity={claim.severity} /></td>
                   <td className="num">{formatMoney(claim.approvedAmount ?? claim.estimatedAmount)}</td>
                   <td className="nowrap">{formatDateTime(claim.createdAt)}</td>
                   <td>{!['PAID', 'REJECTED', 'WITHDRAWN'].includes(claim.status) && (
-                    <button className="btn sm danger" onClick={() => api.withdraw(claim.id).then(refresh).catch(setError)}>Wycofaj</button>)}</td>
+                    <button className="btn sm danger" onClick={() => api.withdraw(claim.id).then(refresh).catch(setError)}>Withdraw</button>)}</td>
                 </tr>
               ))}
-              {claims.length === 0 && <tr><td colSpan={7} className="empty">Brak zgłoszeń — użyj formularza powyżej.</td></tr>}
+              {claims.length === 0 && <tr><td colSpan={7} className="empty">No claims yet — use the form above.</td></tr>}
             </tbody>
           </table>
         </div>

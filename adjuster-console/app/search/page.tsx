@@ -28,18 +28,18 @@ export default function Search() {
   };
   return (
     <RequireRole roles={['ADJUSTER', 'FINANCE', 'ADMIN']}>
-      <Shell title="Wyszukiwarka" subtitle="Elasticsearch: rozmyte dopasowanie po tablicy, polisie, numerze szkody i opisie. Wynik może być o kilka sekund za stanem szkody — akcje działają na aktualnych danych.">
+      <Shell title="Search" subtitle="Elasticsearch: fuzzy matching on plate, policy, claim number and description. Results can lag the claim state by a few seconds — actions run on live data.">
         <form className="card toolbar" onSubmit={run}>
-          <label className="field" style={{ flex: 1, minWidth: 240 }}>Fraza<input value={queryText} onChange={(event) => setQueryText(event.target.value)} placeholder="np. WA12354, POL-2026, zderzak" /></label>
-          <label className="field">Status<select value={status} onChange={(event) => setStatus(event.target.value)}><option value="">dowolny</option>{STATUSES.map((candidate) => <option key={candidate} value={candidate}>{candidate}</option>)}</select></label>
-          <button className="btn primary" type="submit" disabled={busy}>Szukaj</button>
+          <label className="field" style={{ flex: 1, minWidth: 240 }}>Query<input value={queryText} onChange={(event) => setQueryText(event.target.value)} placeholder="e.g. WA12354, POL-2026, bumper" /></label>
+          <label className="field">Status<select value={status} onChange={(event) => setStatus(event.target.value)}><option value="">any</option>{STATUSES.map((candidate) => <option key={candidate} value={candidate}>{candidate}</option>)}</select></label>
+          <button className="btn primary" type="submit" disabled={busy}>Search</button>
         </form>
         {error && <Alert kind="error">{error}</Alert>}
         {result && (
           <div className="card table-wrap">
-            <h2>{result.total} wyników</h2>
+            <h2>{result.total} results</h2>
             <table>
-              <thead><tr><th>Szkoda</th><th>Tablica / polisa</th><th>Opis</th><th>Status</th><th className="num">Kwota</th><th>Ostatnie zdarzenie</th><th>Akcja</th></tr></thead>
+              <thead><tr><th>Claim</th><th>Plate / policy</th><th>Description</th><th>Status</th><th className="num">Amount</th><th>Last event</th><th>Action</th></tr></thead>
               <tbody>
                 {result.items.map((document) => (
                   <tr key={document.claimId}>
@@ -52,15 +52,15 @@ export default function Search() {
                     <td>
                       <div className="actions">
                         {document.status === 'PENDING_REVIEW' && has('ADJUSTER', 'ADMIN') && (
-                          <button className="btn sm primary" onClick={() => takeAndReview(document.claimId)}>Przejmij i oceń</button>)}
+                          <button className="btn sm primary" onClick={() => takeAndReview(document.claimId)}>Take and review</button>)}
                         {document.status === 'PAYOUT_FAILED' && has('FINANCE', 'ADMIN') && (
-                          <Link className="btn sm primary" href={`/claims/${document.claimId}`}>Ponów wypłatę</Link>)}
-                        <Link className="btn sm" href={`/claims/${document.claimId}`}>Szczegóły</Link>
+                          <Link className="btn sm primary" href={`/claims/${document.claimId}`}>Retry payout</Link>)}
+                        <Link className="btn sm" href={`/claims/${document.claimId}`}>Details</Link>
                       </div>
                     </td>
                   </tr>
                 ))}
-                {result.items.length === 0 && <tr><td colSpan={7} className="empty">Nic nie znaleziono.</td></tr>}
+                {result.items.length === 0 && <tr><td colSpan={7} className="empty">Nothing found.</td></tr>}
               </tbody>
             </table>
           </div>

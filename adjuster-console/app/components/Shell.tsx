@@ -9,13 +9,13 @@ import type { Role } from '../types';
 
 interface NavItem { href: string; label: string; roles: Role[]; icon: string; }
 const NAV: { section: string; items: NavItem[] }[] = [
-  { section: 'Ubezpieczony', items: [{ href: '/claims', label: 'Moje szkody', roles: ['POLICYHOLDER', 'ADMIN'], icon: '🚗' }] },
-  { section: 'Likwidacja', items: [
-    { href: '/reviews', label: 'Kolejka ocen', roles: ['ADJUSTER', 'ADMIN'], icon: '📋' },
-    { href: '/search', label: 'Wyszukiwarka', roles: ['ADJUSTER', 'FINANCE', 'ADMIN'], icon: '🔎' },
+  { section: 'Policyholder', items: [{ href: '/claims', label: 'My claims', roles: ['POLICYHOLDER', 'ADMIN'], icon: '🚗' }] },
+  { section: 'Claims handling', items: [
+    { href: '/reviews', label: 'Review queue', roles: ['ADJUSTER', 'ADMIN'], icon: '📋' },
+    { href: '/search', label: 'Search', roles: ['ADJUSTER', 'FINANCE', 'ADMIN'], icon: '🔎' },
   ] },
-  { section: 'Finanse', items: [{ href: '/finance', label: 'Wypłaty', roles: ['FINANCE', 'ADMIN'], icon: '💳' }] },
-  { section: 'Administracja', items: [{ href: '/admin', label: 'Panel admina', roles: ['ADMIN'], icon: '⚙️' }] },
+  { section: 'Finance', items: [{ href: '/finance', label: 'Payouts', roles: ['FINANCE', 'ADMIN'], icon: '💳' }] },
+  { section: 'Administration', items: [{ href: '/admin', label: 'Admin panel', roles: ['ADMIN'], icon: '⚙️' }] },
 ];
 
 export function Shell({ title, subtitle, actions, children }: { title: string; subtitle?: ReactNode; actions?: ReactNode; children: ReactNode }) {
@@ -42,7 +42,7 @@ export function Shell({ title, subtitle, actions, children }: { title: string; s
           })}
           {has('ADMIN') && (
             <div>
-              <div className="section">Narzędzia</div>
+              <div className="section">Tools</div>
               <a href={EXTERNAL_LINKS.grafana} target="_blank" rel="noreferrer">📈 Grafana</a>
               <a href={EXTERNAL_LINKS.kibana} target="_blank" rel="noreferrer">🧭 Kibana</a>
               <a href={EXTERNAL_LINKS.jenkins} target="_blank" rel="noreferrer">🛠 Jenkins</a>
@@ -53,7 +53,7 @@ export function Shell({ title, subtitle, actions, children }: { title: string; s
           <div className="userbox">
             <div className="name">{session.user.displayName}</div>
             <div className="roles">{session.user.username} · {session.user.roles.join(', ')}</div>
-            <button className="btn sm" style={{ marginTop: '0.6rem' }} onClick={logout}>Wyloguj</button>
+            <button className="btn sm" style={{ marginTop: '0.6rem' }} onClick={logout}>Sign out</button>
           </div>
         )}
       </aside>

@@ -40,7 +40,7 @@ async function call<T>(base: string, path: string, init: RequestInit = {}): Prom
   try {
     response = await fetch(`${base}${path}`, { ...init, headers, cache: 'no-store' });
   } catch {
-    throw new ApiError(0, `Brak połączenia z ${base} — czy ten serwis jest uruchomiony?`);
+    throw new ApiError(0, `Cannot reach ${base} — is that service running?`);
   }
   if (!response.ok) {
     let detail = `${response.status} ${response.statusText}`;
