@@ -97,7 +97,6 @@ class OutboxIT extends AbstractIntegrationTest {
 
     @Test
     void rollbackDiscardsBothAggregateAndEvent() {
-        long rowsBefore = outboxEvents.count();
         assertThatThrownBy(() -> transactionTemplate.executeWithoutResult(status -> {
                     claimService.submit(
                             "POL-RB", "RB 1", LocalDate.now(), "This transaction will roll back", null, List.of());
@@ -105,9 +104,12 @@ class OutboxIT extends AbstractIntegrationTest {
                 }))
                 .isInstanceOf(IllegalStateException.class);
 
-        assertThat(outboxEvents.count()).isEqualTo(rowsBefore);
+        // no claim and no outbox row for it — checked by content, not by a global count that other tests' events would
+        // skew
         assertThat(claimRepository.findAll())
                 .noneMatch(claim -> claim.getPolicyNumber().equals("POL-RB"));
+        assertThat(outboxEvents.findAll())
+                .noneMatch(event -> event.getPayload().contains("\"policyNumber\":\"POL-RB\""));
     }
 
     @Test

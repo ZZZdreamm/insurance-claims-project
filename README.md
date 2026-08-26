@@ -57,7 +57,8 @@ docker compose --profile core --profile console up -d --build
 # search profile also brings Kibana (http://localhost:5601) with data views over the claims indices
 docker compose --profile core --profile search up -d --build
 
-# a real Jenkins (http://localhost:8090, admin/admin) with the pipeline job already configured
+# a real Jenkins (http://localhost:8090, admin/admin) with the pipeline job already configured; set DOCKER_GID in .env
+# to the group of /var/run/docker.sock (stat -c %g /var/run/docker.sock) so Testcontainers can run inside Jenkins
 docker compose --profile ci up -d --build
 
 # add Prometheus + Grafana (http://localhost:3001) + Loki + Tempo; copy .env.example to .env first so
