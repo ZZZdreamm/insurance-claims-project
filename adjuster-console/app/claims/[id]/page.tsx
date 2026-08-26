@@ -5,6 +5,7 @@ import { useParams } from 'next/navigation';
 import { api } from '../../api';
 import { RequireRole, useAuth } from '../../auth';
 import { Shell } from '../../components/Shell';
+import { ClaimActions } from '../../components/ClaimActions';
 import { Alert, Photos, SeverityBadge, StatusBadge, formatDateTime, formatMoney, useErrorState } from '../../components/ui';
 import type { Claim, ClaimEventLogEntry, LedgerEntry } from '../../types';
 
@@ -40,6 +41,7 @@ export default function ClaimDetail() {
         {claim && (
           <div className="grid cols-2">
             <div>
+              <ClaimActions claim={claim} onChange={refresh} />
               <div className="card">
                 <h2>Opis i zdjęcia</h2>
                 <p>{claim.description}</p>
