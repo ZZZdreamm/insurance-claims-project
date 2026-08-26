@@ -24,6 +24,12 @@ public record ClaimResponse(
         String payoutFailureReason,
         Severity severity,
         String assessmentProvider,
+        BigDecimal assessmentScore,
+        String assessmentExplanation,
+        Instant assessedAt,
+        Instant paidAt,
+        String payoutReference,
+        UUID ownerId,
         String reviewAssignee,
         Instant reviewDueAt,
         boolean escalated,
@@ -31,6 +37,7 @@ public record ClaimResponse(
         long version,
         Instant createdAt,
         Instant updatedAt) {
+
     public static ClaimResponse from(Claim claim, List<UUID> photoIds) {
         return new ClaimResponse(
                 claim.getId(),
@@ -46,6 +53,12 @@ public record ClaimResponse(
                 claim.getPayoutFailureReason(),
                 claim.getSeverity(),
                 claim.getAssessmentProvider(),
+                claim.getAssessmentScore(),
+                claim.getAssessmentExplanation(),
+                claim.getAssessedAt(),
+                claim.getPaidAt(),
+                claim.getPayoutReference(),
+                claim.getOwnerId(),
                 claim.getReviewAssignee(),
                 claim.getReviewDueAt(),
                 claim.getEscalatedAt() != null,

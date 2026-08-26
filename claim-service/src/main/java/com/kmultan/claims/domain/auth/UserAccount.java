@@ -72,4 +72,27 @@ public class UserAccount {
                 .map(Role::valueOf)
                 .collect(Collectors.toCollection(() -> EnumSet.noneOf(Role.class)));
     }
+
+    public void changeRoles(Set<Role> newRoles) {
+        if (newRoles == null || newRoles.isEmpty()) {
+            throw new IllegalArgumentException("An account needs at least one role");
+        }
+        this.roles = newRoles.stream().map(Enum::name).sorted().collect(Collectors.joining(","));
+    }
+
+    public void changePassword(String newPasswordHash) {
+        this.passwordHash = newPasswordHash;
+    }
+
+    public void rename(String newDisplayName) {
+        this.displayName = newDisplayName;
+    }
+
+    public void setEnabled(boolean enabled) {
+        this.enabled = enabled;
+    }
+
+    public Instant getCreatedAt() {
+        return createdAt;
+    }
 }

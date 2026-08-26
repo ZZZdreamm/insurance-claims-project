@@ -72,6 +72,21 @@ public class Claim {
     @Column(name = "assessment_provider", length = 64)
     private String assessmentProvider;
 
+    @Column(name = "assessment_score", precision = 6, scale = 2)
+    private BigDecimal assessmentScore;
+
+    @Column(name = "assessment_explanation", length = 2000)
+    private String assessmentExplanation;
+
+    @Column(name = "assessed_at")
+    private Instant assessedAt;
+
+    @Column(name = "paid_at")
+    private Instant paidAt;
+
+    @Column(name = "payout_reference", length = 64)
+    private String payoutReference;
+
     @Column(name = "review_assignee", length = 64)
     private String reviewAssignee;
 
@@ -157,9 +172,22 @@ public class Claim {
 
     /** Triage result arrived (from assessment-service or the in-process fallback): the claim is ready for a human. */
     public void completeAssessment(Severity severity, BigDecimal assessedAmount, String provider, Instant reviewDueAt) {
+        completeAssessment(severity, assessedAmount, provider, reviewDueAt, null, null);
+    }
+
+    public void completeAssessment(
+            Severity severity,
+            BigDecimal assessedAmount,
+            String provider,
+            Instant reviewDueAt,
+            BigDecimal score,
+            String explanation) {
         transitionTo(ClaimStatus.PENDING_REVIEW);
         this.severity = severity;
         this.assessmentProvider = provider;
+        this.assessmentScore = score;
+        this.assessmentExplanation = explanation;
+        this.assessedAt = Instant.now();
         this.reviewDueAt = reviewDueAt;
         if (assessedAmount != null) {
             this.estimatedAmount = assessedAmount;
@@ -220,7 +248,13 @@ public class Claim {
     }
 
     public void markPaid() {
+        markPaid(null);
+    }
+
+    public void markPaid(String payoutReference) {
         transitionTo(ClaimStatus.PAID);
+        this.paidAt = Instant.now();
+        this.payoutReference = payoutReference;
     }
 
     public void markPayoutFailed(String reason) {
@@ -327,5 +361,25 @@ public class Claim {
 
     public Instant getUpdatedAt() {
         return updatedAt;
+    }
+
+    public BigDecimal getAssessmentScore() {
+        return assessmentScore;
+    }
+
+    public String getAssessmentExplanation() {
+        return assessmentExplanation;
+    }
+
+    public Instant getAssessedAt() {
+        return assessedAt;
+    }
+
+    public Instant getPaidAt() {
+        return paidAt;
+    }
+
+    public String getPayoutReference() {
+        return payoutReference;
     }
 }

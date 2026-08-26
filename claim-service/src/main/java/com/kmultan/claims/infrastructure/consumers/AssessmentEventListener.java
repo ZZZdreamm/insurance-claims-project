@@ -38,10 +38,13 @@ public class AssessmentEventListener {
             if (!AssessmentEvent.ASSESSMENT_COMPLETED.equals(event.eventType())) {
                 return;
             }
+            String explanation = event.explanation() == null ? null : String.join(", ", event.explanation());
             Assessment assessment = new Assessment(
                     Severity.valueOf(event.severity()),
                     event.assessedAmount(),
-                    event.provider() + "/" + event.modelVersion());
+                    event.provider() + "/" + event.modelVersion(),
+                    event.score(),
+                    explanation);
             idempotentConsumer.process(
                     event.eventId(),
                     event.eventType(),

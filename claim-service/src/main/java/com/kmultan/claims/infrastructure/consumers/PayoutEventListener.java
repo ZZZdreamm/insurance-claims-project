@@ -38,7 +38,9 @@ public class PayoutEventListener {
             PayoutEvent event = objectMapper.readValue(consumerRecord.value(), PayoutEvent.class);
             switch (event.type()) {
                 case PayoutEvent.PAYOUT_ISSUED -> idempotentConsumer.process(
-                        event.eventId(), event.type(), () -> claimService.acceptPayout(event.claimId()));
+                        event.eventId(),
+                        event.type(),
+                        () -> claimService.acceptPayout(event.claimId(), event.reference()));
                 case PayoutEvent.PAYOUT_FAILED, PayoutEvent.RESERVATION_REJECTED -> idempotentConsumer.process(
                         event.eventId(),
                         event.type(),

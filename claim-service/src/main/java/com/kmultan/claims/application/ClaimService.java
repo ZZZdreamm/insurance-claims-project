@@ -145,7 +145,9 @@ public class ClaimService {
                 assessment.severity(),
                 assessment.assessedAmount(),
                 assessment.provider(),
-                Instant.now().plus(reviewSla));
+                Instant.now().plus(reviewSla),
+                assessment.score(),
+                assessment.explanation());
         publish(ClaimEventType.ASSESSMENT_COMPLETED, claim);
         return claim;
     }
@@ -206,9 +208,13 @@ public class ClaimService {
 
     /** PAYOUT_ISSUED arrived. If the claim can no longer take the money, tell payout-service to reverse it. */
     public Claim acceptPayout(UUID id) {
+        return acceptPayout(id, null);
+    }
+
+    public Claim acceptPayout(UUID id, String payoutReference) {
         Claim claim = get(id);
         if (claim.getStatus() == ClaimStatus.APPROVED) {
-            claim.markPaid();
+            claim.markPaid(payoutReference);
             publish(ClaimEventType.CLAIM_PAID, claim);
         } else if (claim.getStatus() == ClaimStatus.PAID) {
             log.info("Payout issued again for already paid claim {} — ignored", id);
