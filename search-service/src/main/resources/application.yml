@@ -30,6 +30,8 @@ search:
   event-log-index: claim-events   # append-only fact log (Kibana)
 
 platform:
+  cors:
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000}
   security:
     jwt-secret: ${AUTH_JWT_SECRET:dev-only-secret-change-me-please-32-bytes-minimum}   # same key as claim-service
     jwt-issuer: claim-service

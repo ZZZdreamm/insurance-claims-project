@@ -45,6 +45,8 @@ spring:
       observation-enabled: true
 
 platform:
+  cors:
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000}
   security:
     # HS256 shared secret; every service verifies tokens with the same key. Override in any real deployment.
     jwt-secret: ${AUTH_JWT_SECRET:dev-only-secret-change-me-please-32-bytes-minimum}
@@ -72,8 +74,6 @@ claims:
     ttl: PT24H                    # how long an Idempotency-Key maps to the claim it created
   ratelimit:
     submit-per-minute: ${RATE_LIMIT_SUBMIT_PER_MINUTE:30}   # per client (X-Client-Id header, else remote address) on POST /api/v1/claims
-  cors:
-    allowed-origins: http://localhost:3000
   kafka:
     partitions: 3
 
