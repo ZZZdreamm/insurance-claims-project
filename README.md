@@ -5,14 +5,6 @@ with photos, a small ML service triages it, an adjuster decides, and the payout 
 saga that compensates itself when a leg fails. Six deployable units, four data stores, one Kafka bus —
 and everything runs on a single laptop, for free, with `docker compose up`.
 
-[![CI](https://github.com/kmultan/insurance-claims-project/actions/workflows/ci.yml/badge.svg)](https://github.com/kmultan/insurance-claims-project/actions/workflows/ci.yml)
-
-The project exists to demonstrate, with working code and tests rather than slides, the patterns that
-matter in distributed business systems: **transactional outbox**, **saga with compensation**,
-**idempotent consumers with dead-lettering**, **CQRS read models**, **trace propagation across a broker**,
-**consumer-driven contracts**, and **role-based security enforced at the data**. Every technology choice has
-a stated reason, and a section at the end lists what was deliberately left out.
-
 ---
 
 ## Contents
@@ -87,13 +79,6 @@ keyed by claim id, so per-claim order holds. *Alternative:* Debezium reading the
 latency (~1 s here) at the cost of a Kafka Connect deployment. `OutboxResilienceIT` pauses the Kafka
 container mid-run and proves nothing is lost.
 
-**Event choreography instead of a process engine.**
-The first version used embedded Camunda 7 with a BPMN process and compensation boundary events. It was
-replaced by choreography: fewer moving parts, no orchestrator as a coupling point, each step an
-independently retryable fact. The price is visibility — there is no diagram of "where the claim is"; the
-answer is the claim's status plus the event log in Elasticsearch. Camunda stays the right answer when
-business users must own the process diagram, and the git history contains the working BPMN version.
-
 **Saga with real compensation, no coordinator.**
 `CLAIM_APPROVED` → payout-service reserves funds (`FUNDS_RESERVED`) → payout-service reacts to its *own*
 fact and transfers (`PAYOUT_ISSUED`, or `PAYOUT_FAILED` + `FUNDS_RELEASED` as local compensation) →
@@ -130,14 +115,6 @@ retries must not create two claims; `SET NX EX` → in-progress marker → key�
 returns the original claim with `Idempotent-Replayed: true`) and a fixed-window rate limit per client
 (`INCR`/`EXPIRE`, shared across instances, `429` + `Retry-After`). Both are cheap, expiring,
 pre-transaction checks. `RedisGuardsIT` fires 40 concurrent requests and asserts exactly 5 pass.
-
-**Security is the platform's own and is enforced where the data is.**
-No IdP to run: claim-service keeps accounts in Postgres (bcrypt), issues short-lived HS256 JWTs, and the
-other services verify them with a shared secret. URL rules are coarse; the fine rules sit on the data —
-a policyholder only touches claims whose `owner_id` is their subject, an adjuster only decides a review
-they hold (the assignee comes from the token, never from the request body), retries are `FINANCE` only.
-*Alternative:* Keycloak/OIDC — right when accounts must be shared with other systems; the tokens here are
-standard JWTs, so swapping the issuer is a change to `JwtTokenService` and the login page.
 
 **Triage that is honest about its model.**
 ImageNet MobileNetV2 on ONNX Runtime (14 MB, ~15 ms per image on CPU) read zero-shot: the probability
@@ -233,26 +210,7 @@ First start builds the images and downloads the ONNX model (a few minutes). Prof
 small: `core` alone is enough to demo the saga. Windows/WSL note: host port 4318 is in a reserved range,
 so Tempo's OTLP port is published as `14318`; containers use `tempo:4318` internally.
 
-## 7. The console, role by role
-
-`anna` submits a claim with photos on **Moje szkody** and follows it: status, severity badge, the
-rejection or payout-failure reason, the payment reference and date. The claim detail page shows the
-photos, the ML reasoning ("why SEVERE": score and matched signals) and, for staff, the event timeline and
-the payout ledger entry.
-
-`alice` works the **Kolejka ocen**: paged and filterable (unassigned / mine / all, severity, SLA breached),
-counters on top, "Przejmij" on unassigned claims, then approve with an amount or reject with a reason.
-**Wyszukiwarka** (fuzzy: a plate with a typo still matches) offers "Przejmij i oceń" straight from the results.
-
-`finance` sees failed payouts with the provider's reason and retries with a corrected amount, the payout
-ledger from payout-service (reservations, transfers, references) and what has been paid.
-
-`admin` gets the dashboard (submissions per day, claims by status and severity, paid totals,
-time-to-assessment and time-to-payment), live usage (requests per endpoint, CPU, heap, outbox lag,
-busiest clients), account management (create, roles, enable/disable, password), dead-letter replay and
-the external tools with a reachability check per Compose profile.
-
-## 8. API reference
+## 7. API reference
 
 ```bash
 TOKEN=$(curl -s -X POST localhost:8080/api/v1/auth/login -H 'Content-Type: application/json' \
@@ -282,7 +240,7 @@ Errors are RFC 9457 problem details: `400` validation (with an `errors` list), `
 `409` illegal transition / review held by someone else / optimistic-lock conflict / request in
 progress, `422` business rule, `429` with `Retry-After`.
 
-## 9. Testing strategy
+## 8. Testing strategy
 
 ```bash
 mvn verify              # every module: unit tests + Testcontainers ITs + Spotless + Checkstyle (needs Docker)
@@ -311,7 +269,7 @@ claim-service does; `KafkaTestConsumer` accumulates records per key for `await()
 the same deterministic rules as the real stub gateway: amounts ending in `.99` fail at the provider,
 amounts over 50 000 cannot be reserved, descriptions containing `NOASSESS` get no triage.
 
-## 10. Performance baselines
+## 9. Performance baselines
 
 One laptop under Docker Desktop/WSL2, August 2026 — a baseline to compare before/after a change, not a
 capacity claim.
@@ -329,7 +287,7 @@ capacity claim.
 The per-client rate limit dominates any load test, so raise it for the run:
 `RATE_LIMIT_SUBMIT_PER_MINUTE=1000000 docker compose --profile core up -d claim-service`.
 
-## 11. Observability
+## 10. Observability
 
 - **Metrics** — Micrometer → Prometheus. Business counters next to the platform ones:
   `claims_submitted_total`, `claims_transitions_total{to}`, `outbox_pending`, `outbox_published_total`,
@@ -343,7 +301,7 @@ The per-client rate limit dominates any load test, so raise it for the run:
 - **Kibana** is for business facts, not logs: Discover over `claim-events` answers "what happened to
   CLM-2026-000042" and "approvals per hour by severity".
 
-## 12. Failure drills you can run
+## 11. Failure drills you can run
 
 - **Payment provider rejects**: approve any amount ending in `.99` → `PAYOUT_FAILED` with the reason,
   reservation released, finance retries with a corrected amount.
@@ -361,7 +319,7 @@ The per-client rate limit dominates any load test, so raise it for the run:
 - **Client retry**: repeat a `POST /api/v1/claims` with the same `Idempotency-Key` → `200` pointing at the
   original claim, not a second one.
 
-## 13. CI/CD and deployment
+## 12. CI/CD and deployment
 
 - **GitHub Actions** (`.github/workflows/ci.yml`): `mvn verify` with Testcontainers, pytest, console
   build, `helm lint`/`template`; a `workflow_dispatch` input adds the performance ITs.
@@ -376,31 +334,8 @@ The per-client rate limit dominates any load test, so raise it for the run:
   infrastructure would be run in production (that is what CloudNativePG, Strimzi and ECK are for).
   `./deploy/kind/up.sh` builds, loads and installs.
 
-## 14. Code conventions
 
-`mvn spotless:apply` formats every Java module (Palantir Java Format); `mvn verify` fails on unformatted
-code and on Checkstyle violations (`config/checkstyle`). The rules are opinionated on purpose: identifiers
-are whole words (no `e`, `r`, `svc`; even loop counters are `index`), no star imports, one top-level class
-per file, `default` in every `switch`, methods under 80 lines and complexity under 12 (relaxed for tests).
-Class names say what the class is (`*Configuration`, `*Listener`, `*Controller`, `*Repository`,
-`*Properties`, `*Policy`, `*Assembler`); one listener per topic, one DTO per file; each consumer keeps
-its own copy of the event envelopes it reads. Migrations are append-only Flyway scripts.
-
-## 15. What I deliberately left out
-
-- **MongoDB** — Postgres `jsonb` stores model output fine; a second datastore was not justified.
-- **Camunda / any process engine** — used in v1, replaced by choreography (see decisions). Camunda 8 in
-  particular is 4–6 GB of infrastructure for a demo.
-- **Keycloak / an external IdP** — another ~400 MB and a second source of truth for accounts; the tokens
-  are standard JWTs, so the swap is contained.
-- **RabbitMQ** — no work-dispatch workload in scope to justify a second broker.
-- **Paid LLM APIs and heavyweight ML runtimes** — MobileNetV2 on ONNX Runtime, no torch; deterministic,
-  so tests stay deterministic.
-- **Spring Cloud Eureka / Config Server** — Kubernetes already does discovery and config.
-- **AWS / MinIO / React Native** — photos live in Postgres (`bytea`) for the demo behind a read
-  endpoint; the console's upload form stands in for a mobile app.
-
-## 16. Known limitations and next steps
+## 13. Known limitations and next steps
 
 - HS256 with a shared secret means every verifying service holds the signing key; RS256 with a JWKS
   endpoint is the upgrade if a third party ever verifies tokens.
@@ -412,29 +347,3 @@ its own copy of the event envelopes it reads. Migrations are append-only Flyway 
 - Photos in `bytea` are fine for a demo; a `StorageAdapter` to S3/MinIO is the obvious next step.
 - A second Pact contract (assessment-service ⇄ claim-service) and a token-bucket rate limiter would be
   the next two small additions.
-
-## 17. Repository layout
-
-```
-platform-commons/       shared infrastructure (no JPA): Kafka DLT, tracing, JWT resource server, CORS, ProblemDetails,
-                        latency histograms, logback include; test-jar: TestJwtTokenFactory, KafkaTestConsumer
-platform-outbox/        OutboxEvent, OutboxEventRepository (SKIP LOCKED), OutboxWriter, OutboxPublisher, OutboxTraceContext
-claim-service/          src/main/java/com/kmultan/claims/
-                          domain/            Claim, ClaimStatus, Severity, ClaimPhoto, ProcessedMessage, events, auth/
-                          application/       ClaimService, ClaimTimeoutScheduler, IdempotentConsumer, ClaimMetrics, assessment/
-                          api/               ClaimController, ReviewController, AuthController, ClaimAccessPolicy, dto/, admin/
-                          infrastructure/    consumers/ (assessment, payout listeners), kafka/, outbox/, redis/, security/, assessment/
-                        src/main/resources/db/migration/   Flyway V1 … V7
-payout-service/         PayoutSaga, ledger entities, ClaimEventListener / PayoutEventListener, StubPaymentGateway,
-                        PayoutLedgerController, DeadLetterQueueController
-search-service/         ClaimEventListener → ClaimDocumentIndexer + ClaimEventLogIndexer, ClaimSearchService, timeline API
-assessment-service/     app/model.py (text), app/vision.py (MobileNetV2 ONNX), app/consumer.py (Kafka), app/auth.py, tests/
-adjuster-console/       Next.js 14 + TypeScript: /login, /claims, /claims/[id], /reviews, /search, /finance, /admin
-contracts/pacts/        Pact message contract payout-service ⇄ claim-service
-config/checkstyle/      Checkstyle rules and suppressions
-infra/                  postgres init, kibana data views, jenkins image + JCasC, observability configs and dashboard
-deploy/helm/            claims-platform chart; deploy/kind/up.sh
-perf/                   k6 ingest and lifecycle scenarios, perf/run.sh
-docker-compose.yml      profiles: core, search, console, observability, ci
-Jenkinsfile             same pipeline as GitHub Actions
-```
