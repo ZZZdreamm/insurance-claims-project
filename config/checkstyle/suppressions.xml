@@ -1,0 +1,10 @@
+<?xml version="1.0"?>
+<!DOCTYPE suppressions PUBLIC "-//Checkstyle//DTD SuppressionFilter Configuration 1.2//EN" "https://checkstyle.org/dtds/suppressions_1_2.dtd">
+<suppressions>
+  <!-- tests read better with long scenario methods and many parameters in builders -->
+  <suppress checks="MethodLength|ParameterNumber|CyclomaticComplexity" files="[\\/]src[\\/]test[\\/]"/>
+  <!-- Spring Boot entry points have a main() and are instantiated by the framework -->
+  <suppress checks="HideUtilityClassConstructor" files="Application\.java$"/>
+  <!-- generated / vendor files -->
+  <suppress checks=".*" files="[\\/]target[\\/]"/>
+</suppressions>

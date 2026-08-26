@@ -9,6 +9,8 @@
   <packaging>pom</packaging>
   <name>insurance-claims-platform</name>
 
+  <!-- Code style: `mvn spotless:apply` formats every module (Palantir Java Format), `mvn verify` fails on
+       unformatted code (spotless:check) and on Checkstyle violations (config/checkstyle). -->
   <!-- Aggregator only. Each service keeps its own Spring Boot parent and is
        independently buildable/deployable; this just lets `mvn verify` run everything. -->
   <modules>
@@ -18,4 +20,39 @@
     <module>search-service</module>
     <module>payout-service</module>
   </modules>
+
+  <build>
+    <plugins>
+      <!-- declared here too so `mvn spotless:apply` / `mvn checkstyle:check` resolve from the root -->
+      <plugin>
+        <groupId>com.diffplug.spotless</groupId>
+        <artifactId>spotless-maven-plugin</artifactId>
+        <version>2.44.3</version>
+        <configuration>
+          <java>
+            <palantirJavaFormat><version>2.50.0</version></palantirJavaFormat>
+            <removeUnusedImports/>
+            <importOrder><order>java,javax,jakarta,org,com,</order></importOrder>
+            <trimTrailingWhitespace/>
+            <endWithNewline/>
+          </java>
+        </configuration>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-checkstyle-plugin</artifactId>
+        <version>3.6.0</version>
+        <dependencies>
+          <dependency><groupId>com.puppycrawl.tools</groupId><artifactId>checkstyle</artifactId><version>10.21.4</version></dependency>
+        </dependencies>
+        <configuration>
+          <configLocation>${maven.multiModuleProjectDirectory}/config/checkstyle/checkstyle.xml</configLocation>
+          <propertyExpansion>config_loc=${maven.multiModuleProjectDirectory}/config/checkstyle</propertyExpansion>
+          <includeTestSourceDirectory>true</includeTestSourceDirectory>
+          <consoleOutput>true</consoleOutput>
+          <failOnViolation>true</failOnViolation>
+        </configuration>
+      </plugin>
+    </plugins>
+  </build>
 </project>

@@ -23,4 +23,45 @@
     <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-data-jpa</artifactId></dependency>
     <dependency><groupId>org.springframework.kafka</groupId><artifactId>spring-kafka</artifactId></dependency>
   </dependencies>
+
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>com.diffplug.spotless</groupId>
+        <artifactId>spotless-maven-plugin</artifactId>
+        <version>2.44.3</version>
+        <configuration>
+          <java>
+            <palantirJavaFormat><version>2.50.0</version></palantirJavaFormat>
+            <removeUnusedImports/>
+            <importOrder><order>java,javax,jakarta,org,com,</order></importOrder>
+            <trimTrailingWhitespace/>
+            <endWithNewline/>
+          </java>
+        </configuration>
+        <executions>
+          <execution><id>spotless-check</id><phase>verify</phase><goals><goal>check</goal></goals></execution>
+        </executions>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-checkstyle-plugin</artifactId>
+        <version>3.6.0</version>
+        <dependencies>
+          <dependency><groupId>com.puppycrawl.tools</groupId><artifactId>checkstyle</artifactId><version>10.21.4</version></dependency>
+        </dependencies>
+        <configuration>
+          <configLocation>${maven.multiModuleProjectDirectory}/config/checkstyle/checkstyle.xml</configLocation>
+          <propertyExpansion>config_loc=${maven.multiModuleProjectDirectory}/config/checkstyle</propertyExpansion>
+          <includeTestSourceDirectory>true</includeTestSourceDirectory>
+          <consoleOutput>true</consoleOutput>
+          <failOnViolation>true</failOnViolation>
+          <violationSeverity>error</violationSeverity>
+        </configuration>
+        <executions>
+          <execution><id>checkstyle-check</id><phase>verify</phase><goals><goal>check</goal></goals></execution>
+        </executions>
+      </plugin>
+    </plugins>
+  </build>
 </project>
