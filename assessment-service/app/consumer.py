@@ -19,7 +19,9 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Callable
 
-from app import auth, model
+import time
+
+from app import auth, model, observability
 
 log = logging.getLogger("assessment.consumer")
 
@@ -40,7 +42,10 @@ def build_assessment_event(claim_event: dict, fetch_photos: FetchPhotos) -> dict
     claim_id = claim_event["claimId"]
     photos = fetch_photos(claim_id, claim.get("photoIds") or [])
     amount = claim.get("estimatedAmount")
+    started_at = time.perf_counter()
     result = model.assess(claim["description"], Decimal(str(amount)) if amount is not None else None, photos)
+    observability.LATENCY.observe(time.perf_counter() - started_at)
+    observability.REQUESTS.labels(severity=result.severity.value).inc()
     return {
         "eventId": str(uuid.uuid4()),
         "eventType": "ASSESSMENT_COMPLETED",

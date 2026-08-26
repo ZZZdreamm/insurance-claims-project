@@ -337,16 +337,20 @@ services:
       - "8090:8080"
     volumes:
       - jenkins-home:/var/jenkins_home
+      - jenkins-m2:/var/jenkins_home/.m2       # Maven cache survives rebuilds of the image
       - /var/run/docker.sock:/var/run/docker.sock
       - .:/workspace:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"   # Testcontainers inside Jenkins reaches the containers it starts
     deploy:
       resources:
         limits:
-          memory: 1g
+          memory: 3g                             # Maven + forked test JVMs + Testcontainers clients
 
 volumes:
   postgres-data:
   jenkins-home:
+  jenkins-m2:
   prometheus-data:
   loki-data:
   tempo-data:

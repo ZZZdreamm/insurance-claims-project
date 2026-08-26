@@ -58,6 +58,11 @@ server:
   port: 8082
 
 management:
+  metrics:
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true      # Grafana p95 panels need buckets, not just totals
+        spring.kafka.listener: true
   tracing:
     sampling:
       probability: 1.0            # demo: trace everything; production would sample
