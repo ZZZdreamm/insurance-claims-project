@@ -4,33 +4,66 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import type { ReactNode } from 'react';
 import { useAuth } from '../auth';
+import { EXTERNAL_LINKS } from '../api';
+import type { Role } from '../types';
 
-const NAV: { href: string; label: string; roles: string[] }[] = [
-  { href: '/claims', label: 'Moje szkody', roles: ['POLICYHOLDER', 'ADMIN'] },
-  { href: '/reviews', label: 'Kolejka review', roles: ['ADJUSTER', 'ADMIN'] },
-  { href: '/finance', label: 'Wypłaty', roles: ['FINANCE', 'ADMIN'] },
+interface NavItem { href: string; label: string; roles: Role[]; icon: string; }
+const NAV: { section: string; items: NavItem[] }[] = [
+  { section: 'Ubezpieczony', items: [{ href: '/claims', label: 'Moje szkody', roles: ['POLICYHOLDER', 'ADMIN'], icon: '🚗' }] },
+  { section: 'Likwidacja', items: [
+    { href: '/reviews', label: 'Kolejka ocen', roles: ['ADJUSTER', 'ADMIN'], icon: '📋' },
+    { href: '/search', label: 'Wyszukiwarka', roles: ['ADJUSTER', 'FINANCE', 'ADMIN'], icon: '🔎' },
+  ] },
+  { section: 'Finanse', items: [{ href: '/finance', label: 'Wypłaty', roles: ['FINANCE', 'ADMIN'], icon: '💳' }] },
+  { section: 'Administracja', items: [{ href: '/admin', label: 'Panel admina', roles: ['ADMIN'], icon: '⚙️' }] },
 ];
 
-export function Shell({ title, children }: { title: string; children: ReactNode }) {
+export function Shell({ title, subtitle, actions, children }: { title: string; subtitle?: ReactNode; actions?: ReactNode; children: ReactNode }) {
   const { session, logout, has } = useAuth();
   const path = usePathname();
   return (
-    <main>
-      <header className="topbar">
-        <nav className="actions">
-          {NAV.filter((n) => has(...(n.roles as never[]))).map((n) => (
-            <Link key={n.href} href={n.href} className={path === n.href ? 'active' : ''}>{n.label}</Link>
-          ))}
+    <div className="app">
+      <aside className="sidebar">
+        <div className="brand"><span className="logo">C</span> Claims Platform</div>
+        <nav className="nav">
+          {NAV.map((group) => {
+            const visible = group.items.filter((item) => has(...item.roles));
+            if (visible.length === 0) return null;
+            return (
+              <div key={group.section}>
+                <div className="section">{group.section}</div>
+                {visible.map((item) => (
+                  <Link key={item.href} href={item.href} className={path.startsWith(item.href) ? 'active' : ''}>
+                    <span aria-hidden>{item.icon}</span> {item.label}
+                  </Link>
+                ))}
+              </div>
+            );
+          })}
+          {has('ADMIN') && (
+            <div>
+              <div className="section">Narzędzia</div>
+              <a href={EXTERNAL_LINKS.grafana} target="_blank" rel="noreferrer">📈 Grafana</a>
+              <a href={EXTERNAL_LINKS.kibana} target="_blank" rel="noreferrer">🧭 Kibana</a>
+              <a href={EXTERNAL_LINKS.jenkins} target="_blank" rel="noreferrer">🛠 Jenkins</a>
+            </div>
+          )}
         </nav>
         {session && (
-          <span className="muted">
-            {session.user.displayName} <span className="small">[{session.user.roles.join(', ')}]</span>{' '}
-            <button onClick={logout}>Wyloguj</button>
-          </span>
+          <div className="userbox">
+            <div className="name">{session.user.displayName}</div>
+            <div className="roles">{session.user.username} · {session.user.roles.join(', ')}</div>
+            <button className="btn sm" style={{ marginTop: '0.6rem' }} onClick={logout}>Wyloguj</button>
+          </div>
         )}
-      </header>
-      <h1>{title}</h1>
-      {children}
-    </main>
+      </aside>
+      <main className="content">
+        <div className="page-head">
+          <div><h1>{title}</h1>{subtitle && <p>{subtitle}</p>}</div>
+          {actions && <div className="actions">{actions}</div>}
+        </div>
+        {children}
+      </main>
+    </div>
   );
 }
