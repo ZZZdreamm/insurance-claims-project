@@ -1,16 +1,16 @@
 package com.kmultan.claims.domain.auth;
 
-import jakarta.persistence.Column;
-import jakarta.persistence.Entity;
-import jakarta.persistence.Id;
-import jakarta.persistence.Table;
-
 import java.time.Instant;
 import java.util.Arrays;
 import java.util.EnumSet;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
+
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.Id;
+import jakarta.persistence.Table;
 
 @Entity
 @Table(name = "user_account")
@@ -47,13 +47,29 @@ public class UserAccount {
         this.roles = roles.stream().map(Enum::name).sorted().collect(Collectors.joining(","));
     }
 
-    public UUID getId() { return id; }
-    public String getUsername() { return username; }
-    public String getPasswordHash() { return passwordHash; }
-    public String getDisplayName() { return displayName; }
-    public boolean isEnabled() { return enabled; }
+    public UUID getId() {
+        return id;
+    }
+
+    public String getUsername() {
+        return username;
+    }
+
+    public String getPasswordHash() {
+        return passwordHash;
+    }
+
+    public String getDisplayName() {
+        return displayName;
+    }
+
+    public boolean isEnabled() {
+        return enabled;
+    }
 
     public Set<Role> getRoles() {
-        return Arrays.stream(roles.split(",")).map(Role::valueOf).collect(Collectors.toCollection(() -> EnumSet.noneOf(Role.class)));
+        return Arrays.stream(roles.split(","))
+                .map(Role::valueOf)
+                .collect(Collectors.toCollection(() -> EnumSet.noneOf(Role.class)));
     }
 }

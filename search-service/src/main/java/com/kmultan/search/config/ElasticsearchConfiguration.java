@@ -1,10 +1,12 @@
 package com.kmultan.search.config;
 
-import co.elastic.clients.json.JsonpMapper;
-import co.elastic.clients.json.jackson.JacksonJsonpMapper;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+
+import co.elastic.clients.json.JsonpMapper;
+import co.elastic.clients.json.jackson.JacksonJsonpMapper;
 
 @Configuration
 public class ElasticsearchConfiguration {

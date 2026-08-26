@@ -1,5 +1,20 @@
 package com.kmultan.claims.application;
 
+import java.math.BigDecimal;
+import java.time.Duration;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.util.List;
+import java.util.UUID;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
 import com.kmultan.claims.application.assessment.Assessment;
 import com.kmultan.claims.domain.Claim;
 import com.kmultan.claims.domain.ClaimNotFoundException;
@@ -11,20 +26,6 @@ import com.kmultan.claims.domain.ClaimStatus;
 import com.kmultan.claims.domain.event.ClaimEvent;
 import com.kmultan.claims.domain.event.ClaimEventType;
 import com.kmultan.claims.domain.event.DomainEventPublisher;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.Pageable;
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
-
-import java.math.BigDecimal;
-import java.time.Duration;
-import java.time.Instant;
-import java.time.LocalDate;
-import java.util.List;
-import java.util.UUID;
 
 /**
  * Use cases. Every state change publishes a fact through the outbox in the
@@ -44,9 +45,13 @@ public class ClaimService {
     private final ClaimMetrics metrics;
     private final Duration reviewSla;
 
-    public ClaimService(ClaimRepository claims, ClaimPhotoRepository claimPhotos, ClaimNumberGenerator claimNumbers,
-                        DomainEventPublisher events, ClaimMetrics metrics,
-                        @Value("${claims.review.sla}") Duration reviewSla) {
+    public ClaimService(
+            ClaimRepository claims,
+            ClaimPhotoRepository claimPhotos,
+            ClaimNumberGenerator claimNumbers,
+            DomainEventPublisher events,
+            ClaimMetrics metrics,
+            @Value("${claims.review.sla}") Duration reviewSla) {
         this.claims = claims;
         this.claimPhotos = claimPhotos;
         this.claimNumbers = claimNumbers;
@@ -58,7 +63,9 @@ public class ClaimService {
     public record Photo(String contentType, byte[] data) {}
 
     private List<UUID> photoIds(UUID claimId) {
-        return claimPhotos.findByClaimIdOrderByCreatedAt(claimId).stream().map(ClaimPhoto::getId).toList();
+        return claimPhotos.findByClaimIdOrderByCreatedAt(claimId).stream()
+                .map(ClaimPhoto::getId)
+                .toList();
     }
 
     private void publish(ClaimEventType type, Claim claim) {
@@ -68,19 +75,31 @@ public class ClaimService {
 
     // ---- intake ----
 
-    public Claim submit(String policyNumber, String plateNumber, LocalDate incidentDate,
-                        String description, BigDecimal estimatedAmount, List<Photo> uploadedPhotos) {
+    public Claim submit(
+            String policyNumber,
+            String plateNumber,
+            LocalDate incidentDate,
+            String description,
+            BigDecimal estimatedAmount,
+            List<Photo> uploadedPhotos) {
         return submit(policyNumber, plateNumber, incidentDate, description, estimatedAmount, uploadedPhotos, null);
     }
 
-    public Claim submit(String policyNumber, String plateNumber, LocalDate incidentDate,
-                        String description, BigDecimal estimatedAmount, List<Photo> uploadedPhotos, UUID ownerId) {
-        Claim claim = Claim.submit(claimNumbers.next(), policyNumber, plateNumber, incidentDate, description, estimatedAmount, ownerId);
+    public Claim submit(
+            String policyNumber,
+            String plateNumber,
+            LocalDate incidentDate,
+            String description,
+            BigDecimal estimatedAmount,
+            List<Photo> uploadedPhotos,
+            UUID ownerId) {
+        Claim claim = Claim.submit(
+                claimNumbers.next(), policyNumber, plateNumber, incidentDate, description, estimatedAmount, ownerId);
         claims.save(claim);
         for (Photo uploadedPhoto : uploadedPhotos) {
             claimPhotos.save(new ClaimPhoto(claim.getId(), uploadedPhoto.contentType(), uploadedPhoto.data()));
         }
-        publish(ClaimEventType.CLAIM_SUBMITTED, claim);   // assessment-service reacts to this
+        publish(ClaimEventType.CLAIM_SUBMITTED, claim); // assessment-service reacts to this
         metrics.submitted();
         return claim;
     }
@@ -97,7 +116,9 @@ public class ClaimService {
 
     @Transactional(readOnly = true)
     public Page<Claim> listOwnedBy(UUID ownerId, ClaimStatus status, Pageable pageable) {
-        return status == null ? claims.findByOwnerId(ownerId, pageable) : claims.findByOwnerIdAndStatus(ownerId, status, pageable);
+        return status == null
+                ? claims.findByOwnerId(ownerId, pageable)
+                : claims.findByOwnerIdAndStatus(ownerId, status, pageable);
     }
 
     @Transactional(readOnly = true)
@@ -120,7 +141,11 @@ public class ClaimService {
             log.info("Assessment for claim {} ignored: status is {}", id, claim.getStatus());
             return claim;
         }
-        claim.completeAssessment(assessment.severity(), assessment.assessedAmount(), assessment.provider(), Instant.now().plus(reviewSla));
+        claim.completeAssessment(
+                assessment.severity(),
+                assessment.assessedAmount(),
+                assessment.provider(),
+                Instant.now().plus(reviewSla));
         publish(ClaimEventType.ASSESSMENT_COMPLETED, claim);
         return claim;
     }
@@ -149,7 +174,7 @@ public class ClaimService {
     public Claim approve(UUID id, BigDecimal approvedAmount) {
         Claim claim = get(id);
         claim.approve(approvedAmount);
-        publish(ClaimEventType.CLAIM_APPROVED, claim);   // payout-service reacts to this
+        publish(ClaimEventType.CLAIM_APPROVED, claim); // payout-service reacts to this
         return claim;
     }
 

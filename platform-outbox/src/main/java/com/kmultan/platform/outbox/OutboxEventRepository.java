@@ -1,11 +1,11 @@
 package com.kmultan.platform.outbox;
 
+import java.util.List;
+import java.util.UUID;
+
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
-
-import java.util.List;
-import java.util.UUID;
 
 public interface OutboxEventRepository extends JpaRepository<OutboxEvent, Long> {
 
@@ -13,13 +13,16 @@ public interface OutboxEventRepository extends JpaRepository<OutboxEvent, Long> 
      * {@code FOR UPDATE SKIP LOCKED} lets several service instances poll
      * concurrently without publishing the same row twice or blocking each other.
      */
-    @Query(value = """
+    @Query(
+            value =
+                    """
             select * from outbox_event
             where published_at is null
             order by id
             limit :limit
             for update skip locked
-            """, nativeQuery = true)
+            """,
+            nativeQuery = true)
     List<OutboxEvent> lockUnpublishedBatch(@Param("limit") int limit);
 
     List<OutboxEvent> findByAggregateIdOrderById(UUID aggregateId);

@@ -1,17 +1,18 @@
 package com.kmultan.claims.application;
 
-import com.kmultan.claims.application.assessment.AssessmentProvider;
-import com.kmultan.claims.domain.Claim;
-import com.kmultan.claims.domain.ClaimRepository;
-import com.kmultan.claims.domain.ClaimStatus;
+import java.time.Duration;
+import java.time.Instant;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
-import java.time.Duration;
-import java.time.Instant;
+import com.kmultan.claims.application.assessment.AssessmentProvider;
+import com.kmultan.claims.domain.Claim;
+import com.kmultan.claims.domain.ClaimRepository;
+import com.kmultan.claims.domain.ClaimStatus;
 
 /**
  * Time-based reactions that a process engine used to own:
@@ -31,8 +32,11 @@ public class ClaimTimeoutScheduler {
     private final AssessmentProvider fallbackAssessment;
     private final Duration assessmentTimeout;
 
-    public ClaimTimeoutScheduler(ClaimRepository claims, ClaimService claimService, AssessmentProvider fallbackAssessment,
-                                 @Value("${claims.assessment.timeout}") Duration assessmentTimeout) {
+    public ClaimTimeoutScheduler(
+            ClaimRepository claims,
+            ClaimService claimService,
+            AssessmentProvider fallbackAssessment,
+            @Value("${claims.assessment.timeout}") Duration assessmentTimeout) {
         this.claims = claims;
         this.claimService = claimService;
         this.fallbackAssessment = fallbackAssessment;
@@ -48,11 +52,15 @@ public class ClaimTimeoutScheduler {
 
     public int escalateOverdueReviews(Instant now) {
         int escalated = 0;
-        for (Claim claim : claims.findByStatusAndReviewDueAtBeforeAndEscalatedAtIsNull(ClaimStatus.PENDING_REVIEW, now)) {
+        for (Claim claim :
+                claims.findByStatusAndReviewDueAtBeforeAndEscalatedAtIsNull(ClaimStatus.PENDING_REVIEW, now)) {
             try {
                 if (claimService.escalateReview(claim.getId(), now)) {
                     escalated++;
-                    log.warn("Review SLA breached for claim {} (due {})", claim.getClaimNumber(), claim.getReviewDueAt());
+                    log.warn(
+                            "Review SLA breached for claim {} (due {})",
+                            claim.getClaimNumber(),
+                            claim.getReviewDueAt());
                 }
             } catch (RuntimeException exception) {
                 log.error("Escalation failed for claim {}: {}", claim.getId(), exception.toString());
@@ -67,7 +75,10 @@ public class ClaimTimeoutScheduler {
             try {
                 claimService.completeAssessment(claim.getId(), fallbackAssessment.assess(claim));
                 completed++;
-                log.warn("No triage result for claim {} within {}; heuristic fallback applied", claim.getClaimNumber(), assessmentTimeout);
+                log.warn(
+                        "No triage result for claim {} within {}; heuristic fallback applied",
+                        claim.getClaimNumber(),
+                        assessmentTimeout);
             } catch (RuntimeException exception) {
                 log.error("Fallback assessment failed for claim {}: {}", claim.getId(), exception.toString());
             }

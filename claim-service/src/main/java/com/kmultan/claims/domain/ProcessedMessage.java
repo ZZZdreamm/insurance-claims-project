@@ -1,12 +1,12 @@
 package com.kmultan.claims.domain;
 
+import java.time.Instant;
+import java.util.UUID;
+
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
-
-import java.time.Instant;
-import java.util.UUID;
 
 /** Inbox record: one row per consumed event, inserted in the same transaction as the handler's side effects. */
 @Entity
@@ -30,6 +30,11 @@ public class ProcessedMessage {
         this.messageType = messageType;
     }
 
-    public UUID getMessageId() { return messageId; }
-    public String getMessageType() { return messageType; }
+    public UUID getMessageId() {
+        return messageId;
+    }
+
+    public String getMessageType() {
+        return messageType;
+    }
 }

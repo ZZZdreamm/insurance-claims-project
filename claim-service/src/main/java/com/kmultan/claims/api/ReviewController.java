@@ -1,11 +1,10 @@
 package com.kmultan.claims.api;
 
-import com.kmultan.claims.api.dto.ApproveClaimRequest;
-import com.kmultan.claims.api.dto.ClaimResponse;
-import com.kmultan.claims.api.dto.RejectClaimRequest;
-import com.kmultan.claims.application.ClaimService;
-import com.kmultan.claims.infrastructure.security.AuthenticatedUser;
+import java.util.List;
+import java.util.UUID;
+
 import jakarta.validation.Valid;
+
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -14,8 +13,11 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.util.List;
-import java.util.UUID;
+import com.kmultan.claims.api.dto.ApproveClaimRequest;
+import com.kmultan.claims.api.dto.ClaimResponse;
+import com.kmultan.claims.api.dto.RejectClaimRequest;
+import com.kmultan.claims.application.ClaimService;
+import com.kmultan.claims.infrastructure.security.AuthenticatedUser;
 
 /**
  * Adjuster work queue: claims in PENDING_REVIEW, ordered by SLA due date.
@@ -42,7 +44,8 @@ public class ReviewController {
 
     @PostMapping("/{claimId}/claim")
     public ClaimResponse claimReview(@PathVariable UUID claimId) {
-        return responses.toResponse(claimService.claimReview(claimId, AuthenticatedUser.current().username()));
+        return responses.toResponse(
+                claimService.claimReview(claimId, AuthenticatedUser.current().username()));
     }
 
     @PostMapping("/{claimId}/unclaim")

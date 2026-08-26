@@ -1,5 +1,22 @@
 package com.kmultan.payout.application;
 
+import static com.kmultan.payout.application.PayoutEvent.Type.FUNDS_RELEASED;
+import static com.kmultan.payout.application.PayoutEvent.Type.FUNDS_RESERVED;
+import static com.kmultan.payout.application.PayoutEvent.Type.PAYOUT_FAILED;
+import static com.kmultan.payout.application.PayoutEvent.Type.PAYOUT_ISSUED;
+import static com.kmultan.payout.application.PayoutEvent.Type.PAYOUT_REVERSED;
+import static com.kmultan.payout.application.PayoutEvent.Type.RESERVATION_REJECTED;
+
+import java.math.BigDecimal;
+import java.util.Optional;
+import java.util.UUID;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
 import com.kmultan.payout.domain.FundReservation;
 import com.kmultan.payout.domain.FundReservationRepository;
 import com.kmultan.payout.domain.PaymentGateway;
@@ -7,17 +24,6 @@ import com.kmultan.payout.domain.Payout;
 import com.kmultan.payout.domain.PayoutRepository;
 import com.kmultan.payout.domain.ProcessedMessage;
 import com.kmultan.payout.domain.ProcessedMessageRepository;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
-
-import java.math.BigDecimal;
-import java.util.Optional;
-import java.util.UUID;
-
-import static com.kmultan.payout.application.PayoutEvent.Type.*;
 
 /**
  * Choreographed saga participant. No orchestrator tells this service what to
@@ -45,9 +51,13 @@ public class PayoutSaga {
     private final PayoutEventPublisher eventPublisher;
     private final BigDecimal reserveLimit;
 
-    public PayoutSaga(FundReservationRepository reservations, PayoutRepository payouts, ProcessedMessageRepository processedMessages,
-                      PaymentGateway paymentGateway, PayoutEventPublisher eventPublisher,
-                      @Value("${payout.reserve-limit}") BigDecimal reserveLimit) {
+    public PayoutSaga(
+            FundReservationRepository reservations,
+            PayoutRepository payouts,
+            ProcessedMessageRepository processedMessages,
+            PaymentGateway paymentGateway,
+            PayoutEventPublisher eventPublisher,
+            @Value("${payout.reserve-limit}") BigDecimal reserveLimit) {
         this.reservations = reservations;
         this.payouts = payouts;
         this.processedMessages = processedMessages;
@@ -72,15 +82,19 @@ public class PayoutSaga {
         BigDecimal amount = approval.claim() == null ? null : approval.claim().approvedAmount();
         UUID claimId = approval.claimId();
         if (amount == null || amount.signum() <= 0) {
-            eventPublisher.publish(PayoutEvent.of(RESERVATION_REJECTED, claimId, approval.eventId(), amount, null, "Amount must be positive"));
+            eventPublisher.publish(PayoutEvent.of(
+                    RESERVATION_REJECTED, claimId, approval.eventId(), amount, null, "Amount must be positive"));
             return;
         }
         if (amount.compareTo(reserveLimit) > 0) {
-            eventPublisher.publish(PayoutEvent.of(RESERVATION_REJECTED, claimId, approval.eventId(), amount, null, "Amount exceeds reserve limit"));
+            eventPublisher.publish(PayoutEvent.of(
+                    RESERVATION_REJECTED, claimId, approval.eventId(), amount, null, "Amount exceeds reserve limit"));
             return;
         }
-        FundReservation reservation = reservations.findById(claimId).orElseGet(() -> new FundReservation(claimId, amount));
-        reservation.reserve(amount, approval.eventId());   // re-approval after a failed payout re-reserves on the same row
+        FundReservation reservation =
+                reservations.findById(claimId).orElseGet(() -> new FundReservation(claimId, amount));
+        reservation.reserve(
+                amount, approval.eventId()); // re-approval after a failed payout re-reserves on the same row
         reservations.save(reservation);
         eventPublisher.publish(PayoutEvent.of(FUNDS_RESERVED, claimId, approval.eventId(), amount, null, null));
     }
@@ -90,10 +104,17 @@ public class PayoutSaga {
     public void onFundsReserved(PayoutEvent reserved) {
         if (alreadyProcessed(reserved.eventId(), reserved.type().name())) return;
         UUID claimId = reserved.claimId();
-        Optional<FundReservation> activeReservation = reservations.findById(claimId)
+        Optional<FundReservation> activeReservation = reservations
+                .findById(claimId)
                 .filter(reservation -> reservation.getStatus() == FundReservation.Status.RESERVED);
         if (activeReservation.isEmpty()) {
-            eventPublisher.publish(PayoutEvent.of(PAYOUT_FAILED, claimId, reserved.eventId(), reserved.amount(), null, "No active reservation for claim"));
+            eventPublisher.publish(PayoutEvent.of(
+                    PAYOUT_FAILED,
+                    claimId,
+                    reserved.eventId(),
+                    reserved.amount(),
+                    null,
+                    "No active reservation for claim"));
             return;
         }
         Payout payout = payouts.findById(claimId).orElseGet(() -> Payout.pending(claimId));
@@ -102,13 +123,16 @@ public class PayoutSaga {
             payout.issued(reserved.amount(), transfer.reference(), reserved.eventId());
             activeReservation.get().settle();
             payouts.save(payout);
-            eventPublisher.publish(PayoutEvent.of(PAYOUT_ISSUED, claimId, reserved.eventId(), reserved.amount(), transfer.reference(), null));
+            eventPublisher.publish(PayoutEvent.of(
+                    PAYOUT_ISSUED, claimId, reserved.eventId(), reserved.amount(), transfer.reference(), null));
         } else {
             payout.failed(reserved.amount(), transfer.reason(), reserved.eventId());
-            activeReservation.get().release();                 // compensation of step 1
+            activeReservation.get().release(); // compensation of step 1
             payouts.save(payout);
-            eventPublisher.publish(PayoutEvent.of(PAYOUT_FAILED, claimId, reserved.eventId(), reserved.amount(), null, transfer.reason()));
-            eventPublisher.publish(PayoutEvent.of(FUNDS_RELEASED, claimId, reserved.eventId(), reserved.amount(), null, null));
+            eventPublisher.publish(PayoutEvent.of(
+                    PAYOUT_FAILED, claimId, reserved.eventId(), reserved.amount(), null, transfer.reason()));
+            eventPublisher.publish(
+                    PayoutEvent.of(FUNDS_RELEASED, claimId, reserved.eventId(), reserved.amount(), null, null));
         }
     }
 
@@ -117,10 +141,12 @@ public class PayoutSaga {
     public void onPayoutUnaccepted(ClaimEventEnvelope unaccepted) {
         if (alreadyProcessed(unaccepted.eventId(), unaccepted.eventType())) return;
         UUID claimId = unaccepted.claimId();
-        payouts.findById(claimId).filter(payout -> payout.getStatus() == Payout.Status.ISSUED).ifPresent(payout -> {
-            paymentGateway.reverse(claimId, payout.getReference());
-            payout.reverse();
-        });
+        payouts.findById(claimId)
+                .filter(payout -> payout.getStatus() == Payout.Status.ISSUED)
+                .ifPresent(payout -> {
+                    paymentGateway.reverse(claimId, payout.getReference());
+                    payout.reverse();
+                });
         reservations.findById(claimId).ifPresent(FundReservation::release);
         eventPublisher.publish(PayoutEvent.of(PAYOUT_REVERSED, claimId, unaccepted.eventId(), null, null, null));
     }

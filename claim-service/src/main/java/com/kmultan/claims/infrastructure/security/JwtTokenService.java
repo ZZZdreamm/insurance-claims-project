@@ -1,9 +1,9 @@
 package com.kmultan.claims.infrastructure.security;
 
-import com.kmultan.claims.domain.auth.UserAccount;
-import com.kmultan.platform.security.JwtClaims;
-import com.kmultan.platform.security.PlatformSecurityProperties;
-import com.nimbusds.jose.jwk.source.ImmutableSecret;
+import java.time.Instant;
+
+import javax.crypto.SecretKey;
+
 import org.springframework.security.oauth2.jose.jws.MacAlgorithm;
 import org.springframework.security.oauth2.jwt.JwsHeader;
 import org.springframework.security.oauth2.jwt.JwtClaimsSet;
@@ -12,8 +12,10 @@ import org.springframework.security.oauth2.jwt.JwtEncoderParameters;
 import org.springframework.security.oauth2.jwt.NimbusJwtEncoder;
 import org.springframework.stereotype.Service;
 
-import javax.crypto.SecretKey;
-import java.time.Instant;
+import com.kmultan.claims.domain.auth.UserAccount;
+import com.kmultan.platform.security.JwtClaims;
+import com.kmultan.platform.security.PlatformSecurityProperties;
+import com.nimbusds.jose.jwk.source.ImmutableSecret;
 
 /**
  * Issues the platform's HS256 tokens. Verification lives in platform-commons so
@@ -30,8 +32,10 @@ public class JwtTokenService {
     private final PlatformSecurityProperties securityProperties;
     private final AuthenticationProperties authenticationProperties;
 
-    public JwtTokenService(SecretKey jwtSecretKey, PlatformSecurityProperties securityProperties,
-                           AuthenticationProperties authenticationProperties) {
+    public JwtTokenService(
+            SecretKey jwtSecretKey,
+            PlatformSecurityProperties securityProperties,
+            AuthenticationProperties authenticationProperties) {
         this.encoder = new NimbusJwtEncoder(new ImmutableSecret<>(jwtSecretKey));
         this.securityProperties = securityProperties;
         this.authenticationProperties = authenticationProperties;
@@ -47,9 +51,13 @@ public class JwtTokenService {
                 .expiresAt(expiresAt)
                 .claim(JwtClaims.PREFERRED_USERNAME, account.getUsername())
                 .claim(JwtClaims.DISPLAY_NAME, account.getDisplayName())
-                .claim(JwtClaims.ROLES, account.getRoles().stream().map(Enum::name).toList())
+                .claim(
+                        JwtClaims.ROLES,
+                        account.getRoles().stream().map(Enum::name).toList())
                 .build();
-        String value = encoder.encode(JwtEncoderParameters.from(JwsHeader.with(MacAlgorithm.HS256).build(), claims)).getTokenValue();
+        String value = encoder.encode(JwtEncoderParameters.from(
+                        JwsHeader.with(MacAlgorithm.HS256).build(), claims))
+                .getTokenValue();
         return new IssuedToken(value, expiresAt);
     }
 }

@@ -1,11 +1,14 @@
 package com.kmultan.claims.infrastructure.redis;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.kmultan.platform.web.ProblemDetails;
+import java.io.IOException;
+import java.time.Duration;
+import java.util.regex.Pattern;
+
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.annotation.Order;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -16,9 +19,8 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 import org.springframework.web.util.ContentCachingResponseWrapper;
 
-import java.io.IOException;
-import java.time.Duration;
-import java.util.regex.Pattern;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.kmultan.platform.web.ProblemDetails;
 
 /**
  * Client-supplied {@code Idempotency-Key} on claim submission. A mobile client
@@ -43,8 +45,8 @@ public class ClaimSubmissionIdempotencyFilter extends OncePerRequestFilter {
     private final ObjectMapper objectMapper;
     private final Duration keyTtl;
 
-    public ClaimSubmissionIdempotencyFilter(StringRedisTemplate redis, ObjectMapper objectMapper,
-                                            @Value("${claims.idempotency.ttl}") Duration keyTtl) {
+    public ClaimSubmissionIdempotencyFilter(
+            StringRedisTemplate redis, ObjectMapper objectMapper, @Value("${claims.idempotency.ttl}") Duration keyTtl) {
         this.redis = redis;
         this.objectMapper = objectMapper;
         this.keyTtl = keyTtl;
@@ -52,7 +54,8 @@ public class ClaimSubmissionIdempotencyFilter extends OncePerRequestFilter {
 
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
-        boolean isSubmit = HttpMethod.POST.matches(request.getMethod()) && ClaimSubmissionRateLimitFilter.SUBMIT_PATH.equals(request.getRequestURI());
+        boolean isSubmit = HttpMethod.POST.matches(request.getMethod())
+                && ClaimSubmissionRateLimitFilter.SUBMIT_PATH.equals(request.getRequestURI());
         return !isSubmit || request.getHeader(IDEMPOTENCY_KEY_HEADER) == null;
     }
 
@@ -61,7 +64,12 @@ public class ClaimSubmissionIdempotencyFilter extends OncePerRequestFilter {
             throws ServletException, IOException {
         String idempotencyKey = request.getHeader(IDEMPOTENCY_KEY_HEADER);
         if (!KEY_FORMAT.matcher(idempotencyKey).matches()) {
-            ProblemDetails.write(response, objectMapper, HttpStatus.BAD_REQUEST, "Invalid Idempotency-Key", "8-128 chars: letters, digits, '-' or '_'");
+            ProblemDetails.write(
+                    response,
+                    objectMapper,
+                    HttpStatus.BAD_REQUEST,
+                    "Invalid Idempotency-Key",
+                    "8-128 chars: letters, digits, '-' or '_'");
             return;
         }
         String redisKey = "idem:claim:" + idempotencyKey;
@@ -78,7 +86,7 @@ public class ClaimSubmissionIdempotencyFilter extends OncePerRequestFilter {
                 String claimId = location.substring(location.lastIndexOf('/') + 1);
                 redis.opsForValue().set(redisKey, claimId, keyTtl);
             } else {
-                redis.delete(redisKey);   // failed submission: let the client retry with the same key
+                redis.delete(redisKey); // failed submission: let the client retry with the same key
             }
         } catch (RuntimeException | ServletException | IOException exception) {
             redis.delete(redisKey);
@@ -91,7 +99,11 @@ public class ClaimSubmissionIdempotencyFilter extends OncePerRequestFilter {
     private void replayOrReject(HttpServletResponse response, String redisKey) throws IOException {
         String stored = redis.opsForValue().get(redisKey);
         if (stored == null || IN_PROGRESS_MARKER.equals(stored)) {
-            ProblemDetails.write(response, objectMapper, HttpStatus.CONFLICT, "Request in progress",
+            ProblemDetails.write(
+                    response,
+                    objectMapper,
+                    HttpStatus.CONFLICT,
+                    "Request in progress",
                     "A request with this Idempotency-Key is still being processed");
             return;
         }

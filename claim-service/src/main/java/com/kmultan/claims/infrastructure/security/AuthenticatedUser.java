@@ -1,14 +1,15 @@
 package com.kmultan.claims.infrastructure.security;
 
-import com.kmultan.claims.domain.auth.Role;
-import com.kmultan.platform.security.JwtClaims;
+import java.util.Set;
+import java.util.UUID;
+import java.util.stream.Collectors;
+
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.oauth2.jwt.Jwt;
 
-import java.util.Set;
-import java.util.UUID;
-import java.util.stream.Collectors;
+import com.kmultan.claims.domain.auth.Role;
+import com.kmultan.platform.security.JwtClaims;
 
 /** The caller, as established by the verified bearer token. */
 public record AuthenticatedUser(UUID id, String username, Set<Role> roles) {
@@ -22,7 +23,8 @@ public record AuthenticatedUser(UUID id, String username, Set<Role> roles) {
     }
 
     public static AuthenticatedUser from(Jwt jwt) {
-        return new AuthenticatedUser(UUID.fromString(jwt.getSubject()),
+        return new AuthenticatedUser(
+                UUID.fromString(jwt.getSubject()),
                 jwt.getClaimAsString(JwtClaims.PREFERRED_USERNAME),
                 JwtClaims.rolesOf(jwt).stream().map(Role::valueOf).collect(Collectors.toSet()));
     }

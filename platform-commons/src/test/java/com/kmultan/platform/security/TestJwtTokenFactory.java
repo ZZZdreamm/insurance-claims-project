@@ -1,17 +1,19 @@
 package com.kmultan.platform.security;
 
-import com.nimbusds.jose.jwk.source.ImmutableSecret;
+import java.time.Duration;
+import java.time.Instant;
+import java.util.List;
+import java.util.UUID;
+
+import javax.crypto.spec.SecretKeySpec;
+
 import org.springframework.security.oauth2.jose.jws.MacAlgorithm;
 import org.springframework.security.oauth2.jwt.JwsHeader;
 import org.springframework.security.oauth2.jwt.JwtClaimsSet;
 import org.springframework.security.oauth2.jwt.JwtEncoderParameters;
 import org.springframework.security.oauth2.jwt.NimbusJwtEncoder;
 
-import javax.crypto.spec.SecretKeySpec;
-import java.time.Duration;
-import java.time.Instant;
-import java.util.List;
-import java.util.UUID;
+import com.nimbusds.jose.jwk.source.ImmutableSecret;
 
 /**
  * Mints tokens exactly the way claim-service does, so integration tests
@@ -48,7 +50,8 @@ public final class TestJwtTokenFactory {
     }
 
     public String token(String username, Instant expiresAt, String... roles) {
-        NimbusJwtEncoder encoder = new NimbusJwtEncoder(new ImmutableSecret<>(new SecretKeySpec(secret.getBytes(), "HmacSHA256")));
+        NimbusJwtEncoder encoder =
+                new NimbusJwtEncoder(new ImmutableSecret<>(new SecretKeySpec(secret.getBytes(), "HmacSHA256")));
         JwtClaimsSet claims = JwtClaimsSet.builder()
                 .issuer(ISSUER)
                 .subject(subjectOf(username).toString())
@@ -58,6 +61,8 @@ public final class TestJwtTokenFactory {
                 .claim(JwtClaims.DISPLAY_NAME, username)
                 .claim(JwtClaims.ROLES, List.of(roles))
                 .build();
-        return encoder.encode(JwtEncoderParameters.from(JwsHeader.with(MacAlgorithm.HS256).build(), claims)).getTokenValue();
+        return encoder.encode(JwtEncoderParameters.from(
+                        JwsHeader.with(MacAlgorithm.HS256).build(), claims))
+                .getTokenValue();
     }
 }

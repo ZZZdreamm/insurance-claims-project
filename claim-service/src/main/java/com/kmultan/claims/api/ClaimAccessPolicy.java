@@ -1,9 +1,10 @@
 package com.kmultan.claims.api;
 
+import org.springframework.security.access.AccessDeniedException;
+
 import com.kmultan.claims.domain.Claim;
 import com.kmultan.claims.domain.auth.Role;
 import com.kmultan.claims.infrastructure.security.AuthenticatedUser;
-import org.springframework.security.access.AccessDeniedException;
 
 /** Ownership rules that URL patterns cannot express. */
 final class ClaimAccessPolicy {

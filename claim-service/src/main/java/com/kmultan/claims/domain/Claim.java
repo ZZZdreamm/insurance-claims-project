@@ -1,5 +1,10 @@
 package com.kmultan.claims.domain;
 
+import java.math.BigDecimal;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.util.UUID;
+
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EntityListeners;
@@ -8,14 +13,10 @@ import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import jakarta.persistence.Version;
+
 import org.springframework.data.annotation.CreatedDate;
 import org.springframework.data.annotation.LastModifiedDate;
 import org.springframework.data.jpa.domain.support.AuditingEntityListener;
-
-import java.math.BigDecimal;
-import java.time.Instant;
-import java.time.LocalDate;
-import java.util.UUID;
 
 /**
  * Claim aggregate root. State changes go through behaviour methods so
@@ -99,8 +100,15 @@ public class Claim {
         // JPA
     }
 
-    private Claim(UUID id, String claimNumber, String policyNumber, String plateNumber,
-                  LocalDate incidentDate, String description, BigDecimal estimatedAmount, UUID ownerId) {
+    private Claim(
+            UUID id,
+            String claimNumber,
+            String policyNumber,
+            String plateNumber,
+            LocalDate incidentDate,
+            String description,
+            BigDecimal estimatedAmount,
+            UUID ownerId) {
         this.id = id;
         this.ownerId = ownerId;
         this.claimNumber = claimNumber;
@@ -112,21 +120,39 @@ public class Claim {
         this.status = ClaimStatus.SUBMITTED;
     }
 
-    public static Claim submit(String claimNumber, String policyNumber, String plateNumber,
-                               LocalDate incidentDate, String description, BigDecimal estimatedAmount) {
+    public static Claim submit(
+            String claimNumber,
+            String policyNumber,
+            String plateNumber,
+            LocalDate incidentDate,
+            String description,
+            BigDecimal estimatedAmount) {
         return submit(claimNumber, policyNumber, plateNumber, incidentDate, description, estimatedAmount, null);
     }
 
-    public static Claim submit(String claimNumber, String policyNumber, String plateNumber,
-                               LocalDate incidentDate, String description, BigDecimal estimatedAmount, UUID ownerId) {
+    public static Claim submit(
+            String claimNumber,
+            String policyNumber,
+            String plateNumber,
+            LocalDate incidentDate,
+            String description,
+            BigDecimal estimatedAmount,
+            UUID ownerId) {
         if (incidentDate.isAfter(LocalDate.now())) {
             throw new IllegalArgumentException("Incident date cannot be in the future");
         }
         if (estimatedAmount != null && estimatedAmount.signum() < 0) {
             throw new IllegalArgumentException("Estimated amount cannot be negative");
         }
-        return new Claim(UUID.randomUUID(), claimNumber, policyNumber,
-                plateNumber.toUpperCase().replace(" ", ""), incidentDate, description, estimatedAmount, ownerId);
+        return new Claim(
+                UUID.randomUUID(),
+                claimNumber,
+                policyNumber,
+                plateNumber.toUpperCase().replace(" ", ""),
+                incidentDate,
+                description,
+                estimatedAmount,
+                ownerId);
     }
 
     /** Triage result arrived (from assessment-service or the in-process fallback): the claim is ready for a human. */
@@ -219,26 +245,87 @@ public class Claim {
         this.status = target;
     }
 
-    public UUID getId() { return id; }
-    public String getClaimNumber() { return claimNumber; }
-    public String getPolicyNumber() { return policyNumber; }
-    public String getPlateNumber() { return plateNumber; }
-    public LocalDate getIncidentDate() { return incidentDate; }
-    public String getDescription() { return description; }
-    public BigDecimal getEstimatedAmount() { return estimatedAmount; }
-    public BigDecimal getApprovedAmount() { return approvedAmount; }
-    public ClaimStatus getStatus() { return status; }
-    public String getRejectionReason() { return rejectionReason; }
-    public String getPayoutFailureReason() { return payoutFailureReason; }
-    public Severity getSeverity() { return severity; }
-    public String getAssessmentProvider() { return assessmentProvider; }
-    public String getReviewAssignee() { return reviewAssignee; }
-    public Instant getReviewDueAt() { return reviewDueAt; }
-    public Instant getEscalatedAt() { return escalatedAt; }
-    public UUID getOwnerId() { return ownerId; }
+    public UUID getId() {
+        return id;
+    }
 
-    public boolean isOwnedBy(UUID userId) { return ownerId != null && ownerId.equals(userId); }
-    public long getVersion() { return version; }
-    public Instant getCreatedAt() { return createdAt; }
-    public Instant getUpdatedAt() { return updatedAt; }
+    public String getClaimNumber() {
+        return claimNumber;
+    }
+
+    public String getPolicyNumber() {
+        return policyNumber;
+    }
+
+    public String getPlateNumber() {
+        return plateNumber;
+    }
+
+    public LocalDate getIncidentDate() {
+        return incidentDate;
+    }
+
+    public String getDescription() {
+        return description;
+    }
+
+    public BigDecimal getEstimatedAmount() {
+        return estimatedAmount;
+    }
+
+    public BigDecimal getApprovedAmount() {
+        return approvedAmount;
+    }
+
+    public ClaimStatus getStatus() {
+        return status;
+    }
+
+    public String getRejectionReason() {
+        return rejectionReason;
+    }
+
+    public String getPayoutFailureReason() {
+        return payoutFailureReason;
+    }
+
+    public Severity getSeverity() {
+        return severity;
+    }
+
+    public String getAssessmentProvider() {
+        return assessmentProvider;
+    }
+
+    public String getReviewAssignee() {
+        return reviewAssignee;
+    }
+
+    public Instant getReviewDueAt() {
+        return reviewDueAt;
+    }
+
+    public Instant getEscalatedAt() {
+        return escalatedAt;
+    }
+
+    public UUID getOwnerId() {
+        return ownerId;
+    }
+
+    public boolean isOwnedBy(UUID userId) {
+        return ownerId != null && ownerId.equals(userId);
+    }
+
+    public long getVersion() {
+        return version;
+    }
+
+    public Instant getCreatedAt() {
+        return createdAt;
+    }
+
+    public Instant getUpdatedAt() {
+        return updatedAt;
+    }
 }

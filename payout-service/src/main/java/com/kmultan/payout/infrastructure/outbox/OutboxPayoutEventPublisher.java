@@ -1,10 +1,11 @@
 package com.kmultan.payout.infrastructure.outbox;
 
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Component;
+
 import com.kmultan.payout.application.PayoutEvent;
 import com.kmultan.payout.application.PayoutEventPublisher;
 import com.kmultan.platform.outbox.OutboxWriter;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.stereotype.Component;
 
 @Component
 public class OutboxPayoutEventPublisher implements PayoutEventPublisher {
@@ -18,6 +19,7 @@ public class OutboxPayoutEventPublisher implements PayoutEventPublisher {
 
     @Override
     public void publish(PayoutEvent event) {
-        outboxWriter.write(topic, event.eventId(), "Payout", event.claimId(), event.type().name(), event, event.occurredAt());
+        outboxWriter.write(
+                topic, event.eventId(), "Payout", event.claimId(), event.type().name(), event, event.occurredAt());
     }
 }

@@ -1,5 +1,27 @@
 package com.kmultan.claims.application;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
+import java.math.BigDecimal;
+import java.time.Duration;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
+
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+
 import com.kmultan.claims.application.assessment.Assessment;
 import com.kmultan.claims.domain.Claim;
 import com.kmultan.claims.domain.ClaimNotFoundException;
@@ -12,42 +34,35 @@ import com.kmultan.claims.domain.Severity;
 import com.kmultan.claims.domain.event.ClaimEvent;
 import com.kmultan.claims.domain.event.ClaimEventType;
 import com.kmultan.claims.domain.event.DomainEventPublisher;
+
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.ArgumentCaptor;
-import org.mockito.Mock;
-import org.mockito.junit.jupiter.MockitoExtension;
-
-import java.math.BigDecimal;
-import java.time.Duration;
-import java.time.Instant;
-import java.time.LocalDate;
-import java.util.List;
-import java.util.Optional;
-import java.util.UUID;
-
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 class ClaimServiceTest {
 
-    @Mock ClaimRepository claimRepository;
-    @Mock ClaimPhotoRepository claimPhotos;
-    @Mock ClaimNumberGenerator claimNumbers;
-    @Mock DomainEventPublisher eventPublisher;
+    @Mock
+    ClaimRepository claimRepository;
+
+    @Mock
+    ClaimPhotoRepository claimPhotos;
+
+    @Mock
+    ClaimNumberGenerator claimNumbers;
+
+    @Mock
+    DomainEventPublisher eventPublisher;
+
     ClaimService claimService;
 
     @BeforeEach
     void setUp() {
-        claimService = new ClaimService(claimRepository, claimPhotos, claimNumbers, eventPublisher,
-                new ClaimMetrics(new SimpleMeterRegistry()), Duration.ofHours(48));
+        claimService = new ClaimService(
+                claimRepository,
+                claimPhotos,
+                claimNumbers,
+                eventPublisher,
+                new ClaimMetrics(new SimpleMeterRegistry()),
+                Duration.ofHours(48));
     }
 
     private ClaimEvent publishedEvent() {
@@ -60,11 +75,16 @@ class ClaimServiceTest {
     void submitStoresPhotosAndPublishesSubmittedWithPhotoIds() {
         when(claimNumbers.next()).thenReturn("CLM-2026-000007");
         when(claimRepository.save(any(Claim.class))).thenAnswer(invocation -> invocation.getArgument(0));
-        ClaimPhoto storedPhoto = new ClaimPhoto(UUID.randomUUID(), "image/jpeg", new byte[]{1, 2, 3});
+        ClaimPhoto storedPhoto = new ClaimPhoto(UUID.randomUUID(), "image/jpeg", new byte[] {1, 2, 3});
         when(claimPhotos.findByClaimIdOrderByCreatedAt(any())).thenReturn(List.of(storedPhoto));
 
-        Claim claim = claimService.submit("POL-9", "KR 1A234", LocalDate.now(), "Windscreen cracked by stone", null,
-                List.of(new ClaimService.Photo("image/jpeg", new byte[]{1, 2, 3})));
+        Claim claim = claimService.submit(
+                "POL-9",
+                "KR 1A234",
+                LocalDate.now(),
+                "Windscreen cracked by stone",
+                null,
+                List.of(new ClaimService.Photo("image/jpeg", new byte[] {1, 2, 3})));
 
         assertThat(claim.getClaimNumber()).isEqualTo("CLM-2026-000007");
         assertThat(claim.getStatus()).isEqualTo(ClaimStatus.SUBMITTED);

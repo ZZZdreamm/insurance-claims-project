@@ -1,26 +1,35 @@
 package com.kmultan.claims.domain;
 
-import org.junit.jupiter.api.Test;
-import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.EnumSource;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
 
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 
 class ClaimTest {
 
     private static Claim submittedClaim() {
-        return Claim.submit("CLM-2026-000001", "POL-1", "wa 12345", LocalDate.now().minusDays(1),
-                "Rear bumper dented in a parking lot", new BigDecimal("1200.00"));
+        return Claim.submit(
+                "CLM-2026-000001",
+                "POL-1",
+                "wa 12345",
+                LocalDate.now().minusDays(1),
+                "Rear bumper dented in a parking lot",
+                new BigDecimal("1200.00"));
     }
 
     private static Claim claimPendingReview() {
         Claim claim = submittedClaim();
-        claim.completeAssessment(Severity.MODERATE, new BigDecimal("1500.00"), "test", Instant.now().plusSeconds(3600));
+        claim.completeAssessment(
+                Severity.MODERATE,
+                new BigDecimal("1500.00"),
+                "test",
+                Instant.now().plusSeconds(3600));
         return claim;
     }
 
@@ -62,7 +71,8 @@ class ClaimTest {
         Claim claim = submittedClaim();
         assertThatThrownBy(() -> claim.approve(BigDecimal.TEN))
                 .isInstanceOf(InvalidStateTransitionException.class)
-                .hasMessageContaining("SUBMITTED").hasMessageContaining("APPROVED");
+                .hasMessageContaining("SUBMITTED")
+                .hasMessageContaining("APPROVED");
         assertThat(claim.getStatus()).isEqualTo(ClaimStatus.SUBMITTED);
     }
 
@@ -70,7 +80,7 @@ class ClaimTest {
     void reviewCanOnlyBeClaimedByOneAdjuster() {
         Claim claim = claimPendingReview();
         claim.claimReview("alice");
-        claim.claimReview("alice");   // idempotent for the same person
+        claim.claimReview("alice"); // idempotent for the same person
         assertThatThrownBy(() -> claim.claimReview("bob")).isInstanceOf(IllegalStateException.class);
         claim.unclaimReview();
         claim.claimReview("bob");
@@ -110,7 +120,7 @@ class ClaimTest {
         assertThat(claim.getPayoutFailureReason()).isNull();
 
         claim.markPayoutFailed("again");
-        claim.retryPayout(null);   // keep the amount
+        claim.retryPayout(null); // keep the amount
         assertThat(claim.getApprovedAmount()).isEqualByComparingTo("101.00");
         claim.markPaid();
         assertThat(claim.getStatus()).isEqualTo(ClaimStatus.PAID);
@@ -123,7 +133,9 @@ class ClaimTest {
     }
 
     @ParameterizedTest
-    @EnumSource(value = ClaimStatus.class, names = {"REJECTED", "PAID", "WITHDRAWN"})
+    @EnumSource(
+            value = ClaimStatus.class,
+            names = {"REJECTED", "PAID", "WITHDRAWN"})
     void terminalStatesHaveNoTransitions(ClaimStatus status) {
         assertThat(status.isTerminal()).isTrue();
     }
@@ -132,6 +144,7 @@ class ClaimTest {
     void withdrawnClaimCannotBeReopened() {
         Claim claim = submittedClaim();
         claim.withdraw();
-        assertThatThrownBy(() -> claim.completeAssessment(Severity.MINOR, null, "x", null)).isInstanceOf(InvalidStateTransitionException.class);
+        assertThatThrownBy(() -> claim.completeAssessment(Severity.MINOR, null, "x", null))
+                .isInstanceOf(InvalidStateTransitionException.class);
     }
 }

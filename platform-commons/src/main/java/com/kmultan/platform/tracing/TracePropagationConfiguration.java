@@ -1,9 +1,10 @@
 package com.kmultan.platform.tracing;
 
-import io.opentelemetry.api.trace.propagation.W3CTraceContextPropagator;
-import io.opentelemetry.context.propagation.TextMapPropagator;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+
+import io.opentelemetry.api.trace.propagation.W3CTraceContextPropagator;
+import io.opentelemetry.context.propagation.TextMapPropagator;
 
 /**
  * W3C trace-context propagation ({@code traceparent} / {@code tracestate}) on

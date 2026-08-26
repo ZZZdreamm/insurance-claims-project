@@ -1,12 +1,13 @@
 package com.kmultan.payout.infrastructure.gateway;
 
-import com.kmultan.payout.domain.PaymentGateway;
+import java.math.BigDecimal;
+import java.util.UUID;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
-import java.math.BigDecimal;
-import java.util.UUID;
+import com.kmultan.payout.domain.PaymentGateway;
 
 /**
  * Deterministic stand-in for a payment provider. Amounts ending in .99 are

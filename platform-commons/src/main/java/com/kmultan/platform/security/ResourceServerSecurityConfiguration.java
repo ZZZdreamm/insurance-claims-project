@@ -1,7 +1,8 @@
 package com.kmultan.platform.security;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.kmultan.platform.web.ProblemDetails;
+import javax.crypto.SecretKey;
+import javax.crypto.spec.SecretKeySpec;
+
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -20,8 +21,8 @@ import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationConverter;
 import org.springframework.security.web.SecurityFilterChain;
 
-import javax.crypto.SecretKey;
-import javax.crypto.spec.SecretKeySpec;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.kmultan.platform.web.ProblemDetails;
 
 /**
  * Everything a service needs to accept claim-service tokens. Each service still
@@ -33,7 +34,9 @@ import javax.crypto.spec.SecretKeySpec;
 @EnableConfigurationProperties(PlatformSecurityProperties.class)
 public class ResourceServerSecurityConfiguration {
 
-    public static final String[] PUBLIC_ACTUATOR_ENDPOINTS = {"/actuator/health/**", "/actuator/prometheus", "/actuator/info"};
+    public static final String[] PUBLIC_ACTUATOR_ENDPOINTS = {
+        "/actuator/health/**", "/actuator/prometheus", "/actuator/info"
+    };
 
     @Bean
     public SecretKey jwtSecretKey(PlatformSecurityProperties properties) {
@@ -42,7 +45,9 @@ public class ResourceServerSecurityConfiguration {
 
     @Bean
     public JwtDecoder jwtDecoder(SecretKey jwtSecretKey, PlatformSecurityProperties properties) {
-        NimbusJwtDecoder decoder = NimbusJwtDecoder.withSecretKey(jwtSecretKey).macAlgorithm(MacAlgorithm.HS256).build();
+        NimbusJwtDecoder decoder = NimbusJwtDecoder.withSecretKey(jwtSecretKey)
+                .macAlgorithm(MacAlgorithm.HS256)
+                .build();
         decoder.setJwtValidator(JwtValidators.createDefaultWithIssuer(properties.jwtIssuer()));
         return decoder;
     }
@@ -60,24 +65,39 @@ public class ResourceServerSecurityConfiguration {
      * Applies the platform defaults and hands the URL rules back to the caller.
      * Usage: {@code statelessBearerApi(http, decoder, converter, objectMapper, rules -> rules.requestMatchers(...)...)}.
      */
-    public static SecurityFilterChain statelessBearerApi(HttpSecurity http, JwtDecoder decoder,
-                                                         JwtAuthenticationConverter converter, ObjectMapper objectMapper,
-                                                         Customizer<AuthorizeHttpRequestsConfigurer<HttpSecurity>.AuthorizationManagerRequestMatcherRegistry> rules) throws Exception {
+    public static SecurityFilterChain statelessBearerApi(
+            HttpSecurity http,
+            JwtDecoder decoder,
+            JwtAuthenticationConverter converter,
+            ObjectMapper objectMapper,
+            Customizer<AuthorizeHttpRequestsConfigurer<HttpSecurity>.AuthorizationManagerRequestMatcherRegistry> rules)
+            throws Exception {
         http.csrf(csrf -> csrf.disable())
-            .cors(Customizer.withDefaults())
-            .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-            .authorizeHttpRequests(registry -> {
-                registry.requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
-                        .requestMatchers(PUBLIC_ACTUATOR_ENDPOINTS).permitAll();
-                rules.customize(registry);
-                registry.anyRequest().denyAll();
-            })
-            .oauth2ResourceServer(resourceServer -> resourceServer.jwt(jwt -> jwt.decoder(decoder).jwtAuthenticationConverter(converter)))
-            .exceptionHandling(handling -> handling
-                .authenticationEntryPoint((request, response, exception) -> ProblemDetails.write(response, objectMapper,
-                        HttpStatus.UNAUTHORIZED, "Authentication required", "Send a valid bearer token (POST /api/v1/auth/login)"))
-                .accessDeniedHandler((request, response, exception) -> ProblemDetails.write(response, objectMapper,
-                        HttpStatus.FORBIDDEN, "Forbidden", "Your role does not allow this action")));
+                .cors(Customizer.withDefaults())
+                .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                .authorizeHttpRequests(registry -> {
+                    registry.requestMatchers(HttpMethod.OPTIONS, "/**")
+                            .permitAll()
+                            .requestMatchers(PUBLIC_ACTUATOR_ENDPOINTS)
+                            .permitAll();
+                    rules.customize(registry);
+                    registry.anyRequest().denyAll();
+                })
+                .oauth2ResourceServer(resourceServer ->
+                        resourceServer.jwt(jwt -> jwt.decoder(decoder).jwtAuthenticationConverter(converter)))
+                .exceptionHandling(handling -> handling.authenticationEntryPoint(
+                                (request, response, exception) -> ProblemDetails.write(
+                                        response,
+                                        objectMapper,
+                                        HttpStatus.UNAUTHORIZED,
+                                        "Authentication required",
+                                        "Send a valid bearer token (POST /api/v1/auth/login)"))
+                        .accessDeniedHandler((request, response, exception) -> ProblemDetails.write(
+                                response,
+                                objectMapper,
+                                HttpStatus.FORBIDDEN,
+                                "Forbidden",
+                                "Your role does not allow this action")));
         return http.build();
     }
 }

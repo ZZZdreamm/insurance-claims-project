@@ -1,18 +1,20 @@
 package com.kmultan.search.projection;
 
-import co.elastic.clients.elasticsearch.ElasticsearchClient;
-import co.elastic.clients.elasticsearch.core.IndexRequest;
-import co.elastic.clients.transport.endpoints.BooleanResponse;
-import com.fasterxml.jackson.databind.JsonNode;
+import java.io.IOException;
+import java.time.Instant;
+import java.util.LinkedHashMap;
+import java.util.Map;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
-import java.io.IOException;
-import java.time.Instant;
-import java.util.LinkedHashMap;
-import java.util.Map;
+import com.fasterxml.jackson.databind.JsonNode;
+
+import co.elastic.clients.elasticsearch.ElasticsearchClient;
+import co.elastic.clients.elasticsearch.core.IndexRequest;
+import co.elastic.clients.transport.endpoints.BooleanResponse;
 
 /**
  * Append-only event log: every claim fact as its own document, so Kibana can
@@ -28,7 +30,8 @@ public class ClaimEventLogIndexer {
     private final ElasticsearchClient elasticsearchClient;
     private final String indexName;
 
-    public ClaimEventLogIndexer(ElasticsearchClient elasticsearchClient, @Value("${search.event-log-index}") String indexName) {
+    public ClaimEventLogIndexer(
+            ElasticsearchClient elasticsearchClient, @Value("${search.event-log-index}") String indexName) {
         this.elasticsearchClient = elasticsearchClient;
         this.indexName = indexName;
     }
@@ -51,31 +54,37 @@ public class ClaimEventLogIndexer {
             JsonNode severity = rawEvent.path("claim").path("severity");
             if (!severity.isMissingNode() && !severity.isNull()) document.put("severity", severity.asText());
             JsonNode reviewAssignee = rawEvent.path("claim").path("reviewAssignee");
-            if (!reviewAssignee.isMissingNode() && !reviewAssignee.isNull()) document.put("reviewAssignee", reviewAssignee.asText());
+            if (!reviewAssignee.isMissingNode() && !reviewAssignee.isNull())
+                document.put("reviewAssignee", reviewAssignee.asText());
             JsonNode escalated = rawEvent.path("claim").path("escalated");
             if (escalated.isBoolean()) document.put("escalated", escalated.asBoolean());
         }
-        elasticsearchClient.index(IndexRequest.of(request -> request.index(indexName).id(event.eventId().toString()).document(document)));
+        elasticsearchClient.index(IndexRequest.of(request ->
+                request.index(indexName).id(event.eventId().toString()).document(document)));
     }
 
     public void ensureIndex() throws IOException {
         BooleanResponse exists = elasticsearchClient.indices().exists(request -> request.index(indexName));
         if (exists.value()) return;
-        elasticsearchClient.indices().create(request -> request.index(indexName).mappings(mappings -> mappings
-                .properties("@timestamp", property -> property.date(date -> date))
-                .properties("eventId", property -> property.keyword(keyword -> keyword))
-                .properties("eventType", property -> property.keyword(keyword -> keyword))
-                .properties("sequence", property -> property.long_(number -> number))
-                .properties("claimId", property -> property.keyword(keyword -> keyword))
-                .properties("claimNumber", property -> property.keyword(keyword -> keyword))
-                .properties("policyNumber", property -> property.keyword(keyword -> keyword))
-                .properties("plateNumber", property -> property.keyword(keyword -> keyword))
-                .properties("status", property -> property.keyword(keyword -> keyword))
-                .properties("severity", property -> property.keyword(keyword -> keyword))
-                .properties("reviewAssignee", property -> property.keyword(keyword -> keyword))
-                .properties("escalated", property -> property.boolean_(flag -> flag))
-                .properties("estimatedAmount", property -> property.scaledFloat(scaled -> scaled.scalingFactor(100.0)))
-                .properties("approvedAmount", property -> property.scaledFloat(scaled -> scaled.scalingFactor(100.0)))));
+        elasticsearchClient.indices().create(request -> request.index(indexName)
+                .mappings(mappings -> mappings.properties("@timestamp", property -> property.date(date -> date))
+                        .properties("eventId", property -> property.keyword(keyword -> keyword))
+                        .properties("eventType", property -> property.keyword(keyword -> keyword))
+                        .properties("sequence", property -> property.long_(number -> number))
+                        .properties("claimId", property -> property.keyword(keyword -> keyword))
+                        .properties("claimNumber", property -> property.keyword(keyword -> keyword))
+                        .properties("policyNumber", property -> property.keyword(keyword -> keyword))
+                        .properties("plateNumber", property -> property.keyword(keyword -> keyword))
+                        .properties("status", property -> property.keyword(keyword -> keyword))
+                        .properties("severity", property -> property.keyword(keyword -> keyword))
+                        .properties("reviewAssignee", property -> property.keyword(keyword -> keyword))
+                        .properties("escalated", property -> property.boolean_(flag -> flag))
+                        .properties(
+                                "estimatedAmount",
+                                property -> property.scaledFloat(scaled -> scaled.scalingFactor(100.0)))
+                        .properties(
+                                "approvedAmount",
+                                property -> property.scaledFloat(scaled -> scaled.scalingFactor(100.0)))));
         log.info("Created index {}", indexName);
     }
 }

@@ -10,4 +10,10 @@ package com.kmultan.claims.domain.auth;
  *   <li>SERVICE — machine accounts (assessment-service reads photos)</li>
  * </ul>
  */
-public enum Role { POLICYHOLDER, ADJUSTER, FINANCE, ADMIN, SERVICE }
+public enum Role {
+    POLICYHOLDER,
+    ADJUSTER,
+    FINANCE,
+    ADMIN,
+    SERVICE
+}

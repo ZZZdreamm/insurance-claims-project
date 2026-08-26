@@ -1,6 +1,5 @@
 package com.kmultan.claims;
 
-import com.kmultan.claims.infrastructure.consumers.FakeDownstreamServices;
 import org.junit.jupiter.api.Tag;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
@@ -8,6 +7,8 @@ import org.springframework.context.annotation.Import;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.kafka.KafkaContainer;
+
+import com.kmultan.claims.infrastructure.consumers.FakeDownstreamServices;
 
 /**
  * Shared container setup (one Postgres, one Kafka per JVM) plus in-JVM fakes of

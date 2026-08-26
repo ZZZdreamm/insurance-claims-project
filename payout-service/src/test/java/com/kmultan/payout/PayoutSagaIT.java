@@ -1,13 +1,15 @@
 package com.kmultan.payout;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.kmultan.payout.domain.FundReservation;
-import com.kmultan.payout.domain.FundReservationRepository;
-import com.kmultan.payout.domain.Payout;
-import com.kmultan.payout.domain.PayoutRepository;
-import com.kmultan.platform.kafka.KafkaTestConsumer;
-import com.kmultan.platform.security.TestJwtTokenFactory;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.awaitility.Awaitility.await;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+import java.time.Duration;
+import java.util.List;
+import java.util.UUID;
+
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -22,34 +24,49 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.kafka.KafkaContainer;
 
-import java.time.Duration;
-import java.util.List;
-import java.util.UUID;
-
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.awaitility.Awaitility.await;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.kmultan.payout.domain.FundReservation;
+import com.kmultan.payout.domain.FundReservationRepository;
+import com.kmultan.payout.domain.Payout;
+import com.kmultan.payout.domain.PayoutRepository;
+import com.kmultan.platform.kafka.KafkaTestConsumer;
+import com.kmultan.platform.security.TestJwtTokenFactory;
 
 @Tag("integration")
 @SpringBootTest
 @AutoConfigureMockMvc
 class PayoutSagaIT {
 
-    @ServiceConnection static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine");
-    @ServiceConnection static final KafkaContainer KAFKA = new KafkaContainer("apache/kafka-native:3.8.0");
-    static { POSTGRES.start(); KAFKA.start(); }
+    @ServiceConnection
+    static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine");
+
+    @ServiceConnection
+    static final KafkaContainer KAFKA = new KafkaContainer("apache/kafka-native:3.8.0");
+
+    static {
+        POSTGRES.start();
+        KAFKA.start();
+    }
 
     private static final TestJwtTokenFactory TOKENS = new TestJwtTokenFactory();
     private static final String CLAIMS_TOPIC = "claims.events";
     private static final String PAYOUT_TOPIC = "payout.events";
 
-    @Autowired KafkaTemplate<String, String> kafkaTemplate;
-    @Autowired ObjectMapper objectMapper;
-    @Autowired FundReservationRepository reservations;
-    @Autowired PayoutRepository payouts;
-    @Autowired MockMvc mockMvc;
+    @Autowired
+    KafkaTemplate<String, String> kafkaTemplate;
+
+    @Autowired
+    ObjectMapper objectMapper;
+
+    @Autowired
+    FundReservationRepository reservations;
+
+    @Autowired
+    PayoutRepository payouts;
+
+    @Autowired
+    MockMvc mockMvc;
 
     KafkaTestConsumer payoutEvents;
 
@@ -70,10 +87,13 @@ class PayoutSagaIT {
     }
 
     private void publishClaimEvent(UUID eventId, UUID claimId, String eventType, String amount) throws Exception {
-        String body = """
+        String body =
+                """
                 {"eventId":"%s","eventType":"%s","claimId":"%s","occurredAt":"2026-08-24T10:00:00Z",
-                 "claim":{"claimNumber":"CLM-1","policyNumber":"POL-1","plateNumber":"X","approvedAmount":%s,"status":"APPROVED","futureField":true}}
-                """.formatted(eventId, eventType, claimId, amount);
+                 "claim":{"claimNumber":"CLM-1","policyNumber":"POL-1","plateNumber":"X",
+                          "approvedAmount":%s,"status":"APPROVED","futureField":true}}
+                """
+                        .formatted(eventId, eventType, claimId, amount);
         kafkaTemplate.send(CLAIMS_TOPIC, claimId.toString(), body).get();
     }
 
@@ -87,9 +107,12 @@ class PayoutSagaIT {
 
     /** Payout event types seen so far for the claim, in order. */
     private List<String> eventTypesFor(UUID claimId, int expectedAtLeast) {
-        await().atMost(Duration.ofSeconds(25)).untilAsserted(() ->
-                assertThat(payoutEvents.pollForKey(claimId.toString())).hasSizeGreaterThanOrEqualTo(expectedAtLeast));
-        return payoutEvents.pollForKey(claimId.toString()).stream().map(consumerRecord -> payload(consumerRecord).get("type").asText()).toList();
+        await().atMost(Duration.ofSeconds(25))
+                .untilAsserted(() -> assertThat(payoutEvents.pollForKey(claimId.toString()))
+                        .hasSizeGreaterThanOrEqualTo(expectedAtLeast));
+        return payoutEvents.pollForKey(claimId.toString()).stream()
+                .map(consumerRecord -> payload(consumerRecord).get("type").asText())
+                .toList();
     }
 
     private JsonNode eventAt(UUID claimId, int index) {
@@ -113,7 +136,8 @@ class PayoutSagaIT {
         UUID claimId = UUID.randomUUID();
         UUID eventId = UUID.randomUUID();
         publishClaimEvent(eventId, claimId, "CLAIM_APPROVED", "500.00");
-        publishClaimEvent(eventId, claimId, "CLAIM_APPROVED", "500.00");   // consumer crashed after commit, before offset commit
+        publishClaimEvent(
+                eventId, claimId, "CLAIM_APPROVED", "500.00"); // consumer crashed after commit, before offset commit
 
         eventTypesFor(claimId, 2);
         Thread.sleep(1500);
@@ -131,7 +155,9 @@ class PayoutSagaIT {
 
         // claim-service re-approves with a corrected amount: same rows, new attempt
         publishClaimEvent(claimId, "CLAIM_APPROVED", "301.00");
-        assertThat(eventTypesFor(claimId, 5)).containsExactly("FUNDS_RESERVED", "PAYOUT_FAILED", "FUNDS_RELEASED", "FUNDS_RESERVED", "PAYOUT_ISSUED");
+        assertThat(eventTypesFor(claimId, 5))
+                .containsExactly(
+                        "FUNDS_RESERVED", "PAYOUT_FAILED", "FUNDS_RELEASED", "FUNDS_RESERVED", "PAYOUT_ISSUED");
         assertThat(payouts.findById(claimId).orElseThrow().getStatus()).isEqualTo(Payout.Status.ISSUED);
     }
 
@@ -156,11 +182,15 @@ class PayoutSagaIT {
 
     @Test
     void poisonMessageGoesToDltAndCanBeReplayedByFinanceOnly() throws Exception {
-        kafkaTemplate.send(CLAIMS_TOPIC, UUID.randomUUID().toString(), "{not json").get();
-        Thread.sleep(6000);   // 4 attempts with backoff, then DLT
-        mockMvc.perform(post("/api/v1/dlq/replay").header("Authorization", TOKENS.bearer("alice", "ADJUSTER"))).andExpect(status().isForbidden());
+        kafkaTemplate
+                .send(CLAIMS_TOPIC, UUID.randomUUID().toString(), "{not json")
+                .get();
+        Thread.sleep(6000); // 4 attempts with backoff, then DLT
+        mockMvc.perform(post("/api/v1/dlq/replay").header("Authorization", TOKENS.bearer("alice", "ADJUSTER")))
+                .andExpect(status().isForbidden());
         mockMvc.perform(post("/api/v1/dlq/replay")).andExpect(status().isUnauthorized());
-        mockMvc.perform(post("/api/v1/dlq/replay").header("Authorization", TOKENS.bearer("finance", "FINANCE"))).andExpect(status().isOk())
+        mockMvc.perform(post("/api/v1/dlq/replay").header("Authorization", TOKENS.bearer("finance", "FINANCE")))
+                .andExpect(status().isOk())
                 .andExpect(jsonPath("$.topic").value(CLAIMS_TOPIC))
                 .andExpect(jsonPath("$.replayed").value(1));
     }

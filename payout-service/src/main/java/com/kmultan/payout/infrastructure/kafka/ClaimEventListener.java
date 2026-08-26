@@ -1,15 +1,16 @@
 package com.kmultan.payout.infrastructure.kafka;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.kmultan.payout.application.ClaimEventEnvelope;
-import com.kmultan.payout.application.PayoutSaga;
+import java.io.IOException;
+
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.stereotype.Component;
 
-import java.io.IOException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.kmultan.payout.application.ClaimEventEnvelope;
+import com.kmultan.payout.application.PayoutSaga;
 
 /**
  * Reactions to claim-service facts. The topic is keyed by claim id, so
@@ -37,10 +38,19 @@ public class ClaimEventListener {
             switch (event.eventType()) {
                 case ClaimEventEnvelope.CLAIM_APPROVED -> payoutSaga.onClaimApproved(event);
                 case ClaimEventEnvelope.PAYOUT_UNACCEPTED -> payoutSaga.onPayoutUnaccepted(event);
-                default -> { /* not this service's business */ }
+                default -> {
+                    /* not this service's business */
+                }
             }
         } catch (RuntimeException | IOException exception) {
-            log.error("Failed to handle {}-{}@{} key={}: {}", consumerRecord.topic(), consumerRecord.partition(), consumerRecord.offset(), consumerRecord.key(), exception.toString(), exception);
+            log.error(
+                    "Failed to handle {}-{}@{} key={}: {}",
+                    consumerRecord.topic(),
+                    consumerRecord.partition(),
+                    consumerRecord.offset(),
+                    consumerRecord.key(),
+                    exception.toString(),
+                    exception);
             throw exception;
         }
     }

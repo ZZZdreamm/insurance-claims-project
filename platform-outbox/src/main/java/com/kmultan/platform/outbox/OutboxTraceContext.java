@@ -1,13 +1,14 @@
 package com.kmultan.platform.outbox;
 
-import io.micrometer.tracing.Span;
-import io.micrometer.tracing.Tracer;
-import io.micrometer.tracing.propagation.Propagator;
-import org.springframework.stereotype.Component;
-
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.Callable;
+
+import org.springframework.stereotype.Component;
+
+import io.micrometer.tracing.Span;
+import io.micrometer.tracing.Tracer;
+import io.micrometer.tracing.propagation.Propagator;
 
 /**
  * Bridges trace context across the outbox gap. The HTTP request that changes a
@@ -46,7 +47,10 @@ public class OutboxTraceContext {
             return work.call();
         }
         Map<String, String> carrier = Map.of(TRACEPARENT_HEADER, traceParent);
-        Span span = propagator.extract(carrier, (headers, key) -> headers.get(key)).name(spanName).start();
+        Span span = propagator
+                .extract(carrier, (headers, key) -> headers.get(key))
+                .name(spanName)
+                .start();
         try (Tracer.SpanInScope ignored = tracer.withSpan(span)) {
             return work.call();
         } catch (Exception e) {
@@ -56,5 +60,4 @@ public class OutboxTraceContext {
             span.end();
         }
     }
-
 }

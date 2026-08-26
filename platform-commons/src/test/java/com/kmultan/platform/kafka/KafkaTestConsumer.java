@@ -1,17 +1,17 @@
 package com.kmultan.platform.kafka;
 
-import org.apache.kafka.clients.consumer.Consumer;
-import org.apache.kafka.clients.consumer.ConsumerRecord;
-import org.apache.kafka.common.serialization.StringDeserializer;
-import org.springframework.kafka.core.DefaultKafkaConsumerFactory;
-import org.springframework.kafka.test.utils.KafkaTestUtils;
-
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.function.Predicate;
+
+import org.apache.kafka.clients.consumer.Consumer;
+import org.apache.kafka.clients.consumer.ConsumerRecord;
+import org.apache.kafka.common.serialization.StringDeserializer;
+import org.springframework.kafka.core.DefaultKafkaConsumerFactory;
+import org.springframework.kafka.test.utils.KafkaTestUtils;
 
 /**
  * A throw-away consumer for assertions: its own group id, subscribed from the
@@ -26,8 +26,11 @@ public final class KafkaTestConsumer implements AutoCloseable {
     private final List<ConsumerRecord<String, String>> collected = new ArrayList<>();
 
     public KafkaTestConsumer(String bootstrapServers, String... topics) {
-        Map<String, Object> properties = KafkaTestUtils.consumerProps(bootstrapServers, "test-" + UUID.randomUUID(), "true");
-        this.consumer = new DefaultKafkaConsumerFactory<>(properties, new StringDeserializer(), new StringDeserializer()).createConsumer();
+        Map<String, Object> properties =
+                KafkaTestUtils.consumerProps(bootstrapServers, "test-" + UUID.randomUUID(), "true");
+        this.consumer = new DefaultKafkaConsumerFactory<>(
+                        properties, new StringDeserializer(), new StringDeserializer())
+                .createConsumer();
         this.consumer.subscribe(List.of(topics));
     }
 

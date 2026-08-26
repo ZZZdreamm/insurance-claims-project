@@ -8,5 +8,4 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 @Configuration
 @EnableScheduling
 @EnableConfigurationProperties(OutboxProperties.class)
-public class OutboxConfiguration {
-}
+public class OutboxConfiguration {}

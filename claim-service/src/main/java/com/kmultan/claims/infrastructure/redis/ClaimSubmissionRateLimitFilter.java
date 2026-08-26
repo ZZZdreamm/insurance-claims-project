@@ -1,11 +1,14 @@
 package com.kmultan.claims.infrastructure.redis;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.kmultan.platform.web.ProblemDetails;
+import java.io.IOException;
+import java.time.Clock;
+import java.time.Duration;
+
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.annotation.Order;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -14,9 +17,8 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
-import java.io.IOException;
-import java.time.Clock;
-import java.time.Duration;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.kmultan.platform.web.ProblemDetails;
 
 /**
  * Fixed-window rate limit on claim submission, per client, shared across
@@ -38,8 +40,11 @@ public class ClaimSubmissionRateLimitFilter extends OncePerRequestFilter {
     private final ObjectMapper objectMapper;
     private final int limitPerMinute;
 
-    public ClaimSubmissionRateLimitFilter(StringRedisTemplate redis, Clock clock, ObjectMapper objectMapper,
-                                          @Value("${claims.ratelimit.submit-per-minute}") int limitPerMinute) {
+    public ClaimSubmissionRateLimitFilter(
+            StringRedisTemplate redis,
+            Clock clock,
+            ObjectMapper objectMapper,
+            @Value("${claims.ratelimit.submit-per-minute}") int limitPerMinute) {
         this.redis = redis;
         this.clock = clock;
         this.objectMapper = objectMapper;
@@ -70,7 +75,11 @@ public class ClaimSubmissionRateLimitFilter extends OncePerRequestFilter {
         response.setHeader("X-RateLimit-Remaining", Long.toString(Math.max(0, limitPerMinute - count)));
         if (count > limitPerMinute) {
             response.setHeader("Retry-After", Long.toString(WINDOW_SECONDS - (nowSeconds % WINDOW_SECONDS)));
-            ProblemDetails.write(response, objectMapper, HttpStatus.TOO_MANY_REQUESTS, "Too many submissions",
+            ProblemDetails.write(
+                    response,
+                    objectMapper,
+                    HttpStatus.TOO_MANY_REQUESTS,
+                    "Too many submissions",
                     "Limit is " + limitPerMinute + " claim submissions per minute per client");
             return;
         }

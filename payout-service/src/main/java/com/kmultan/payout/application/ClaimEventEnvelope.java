@@ -1,10 +1,10 @@
 package com.kmultan.payout.application;
 
-import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
-
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.UUID;
+
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 
 /**
  * payout-service's view of a claim event. Only the fields this service needs;

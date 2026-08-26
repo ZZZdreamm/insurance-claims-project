@@ -1,12 +1,13 @@
 package com.kmultan.platform.outbox;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import java.time.Instant;
+import java.util.UUID;
+
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
-import java.time.Instant;
-import java.util.UUID;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 /** Single place that appends to the outbox; every message the service emits goes through here. */
 @Component
@@ -22,14 +23,27 @@ public class OutboxWriter {
         this.trace = trace;
     }
 
-    public void write(String topic, UUID messageId, String aggregateType, UUID aggregateId,
-                      String messageType, Object payload, Instant occurredAt) {
+    public void write(
+            String topic,
+            UUID messageId,
+            String aggregateType,
+            UUID aggregateId,
+            String messageType,
+            Object payload,
+            Instant occurredAt) {
         if (!TransactionSynchronizationManager.isActualTransactionActive()) {
             throw new IllegalStateException("Outbox writes must happen inside the aggregate's transaction");
         }
         try {
-            outboxEvents.save(new OutboxEvent(messageId, topic, aggregateType, aggregateId, messageType,
-                    mapper.writeValueAsString(payload), occurredAt).withTraceParent(trace.current()));
+            outboxEvents.save(new OutboxEvent(
+                            messageId,
+                            topic,
+                            aggregateType,
+                            aggregateId,
+                            messageType,
+                            mapper.writeValueAsString(payload),
+                            occurredAt)
+                    .withTraceParent(trace.current()));
         } catch (JsonProcessingException e) {
             throw new IllegalStateException("Cannot serialise " + messageType, e);
         }

@@ -1,10 +1,12 @@
 package com.kmultan.claims.infrastructure;
 
-import com.kmultan.claims.domain.ClaimNumberGenerator;
+import java.time.Year;
+
 import jakarta.persistence.EntityManager;
+
 import org.springframework.stereotype.Component;
 
-import java.time.Year;
+import com.kmultan.claims.domain.ClaimNumberGenerator;
 
 /**
  * Backed by a Postgres sequence so numbers are unique across service instances

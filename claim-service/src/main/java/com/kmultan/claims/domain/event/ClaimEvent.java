@@ -1,14 +1,14 @@
 package com.kmultan.claims.domain.event;
 
-import com.kmultan.claims.domain.Claim;
-import com.kmultan.claims.domain.ClaimStatus;
-import com.kmultan.claims.domain.Severity;
-
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
+
+import com.kmultan.claims.domain.Claim;
+import com.kmultan.claims.domain.ClaimStatus;
+import com.kmultan.claims.domain.Severity;
 
 /**
  * Immutable business fact about a claim. Carries a full snapshot so consumers
@@ -16,12 +16,7 @@ import java.util.UUID;
  * this service to build their own view.
  */
 public record ClaimEvent(
-        UUID eventId,
-        ClaimEventType eventType,
-        UUID claimId,
-        Instant occurredAt,
-        ClaimSnapshot claim
-) {
+        UUID eventId, ClaimEventType eventType, UUID claimId, Instant occurredAt, ClaimSnapshot claim) {
     public record ClaimSnapshot(
             String claimNumber,
             String policyNumber,
@@ -36,13 +31,23 @@ public record ClaimEvent(
             String reviewAssignee,
             Instant reviewDueAt,
             boolean escalated,
-            List<UUID> photoIds
-    ) {
+            List<UUID> photoIds) {
         public static ClaimSnapshot of(Claim claim, List<UUID> photoIds) {
-            return new ClaimSnapshot(claim.getClaimNumber(), claim.getPolicyNumber(), claim.getPlateNumber(),
-                    claim.getIncidentDate(), claim.getDescription(), claim.getEstimatedAmount(), claim.getApprovedAmount(),
-                    claim.getStatus(), claim.getRejectionReason(), claim.getSeverity(), claim.getReviewAssignee(),
-                    claim.getReviewDueAt(), claim.getEscalatedAt() != null, photoIds);
+            return new ClaimSnapshot(
+                    claim.getClaimNumber(),
+                    claim.getPolicyNumber(),
+                    claim.getPlateNumber(),
+                    claim.getIncidentDate(),
+                    claim.getDescription(),
+                    claim.getEstimatedAmount(),
+                    claim.getApprovedAmount(),
+                    claim.getStatus(),
+                    claim.getRejectionReason(),
+                    claim.getSeverity(),
+                    claim.getReviewAssignee(),
+                    claim.getReviewDueAt(),
+                    claim.getEscalatedAt() != null,
+                    photoIds);
         }
     }
 

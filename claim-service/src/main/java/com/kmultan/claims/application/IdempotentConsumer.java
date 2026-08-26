@@ -1,13 +1,14 @@
 package com.kmultan.claims.application;
 
-import com.kmultan.claims.domain.ProcessedMessage;
-import com.kmultan.claims.domain.ProcessedMessageRepository;
+import java.util.UUID;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.util.UUID;
+import com.kmultan.claims.domain.ProcessedMessage;
+import com.kmultan.claims.domain.ProcessedMessageRepository;
 
 /**
  * Inbox-side deduplication for consumed events. The processed row is inserted

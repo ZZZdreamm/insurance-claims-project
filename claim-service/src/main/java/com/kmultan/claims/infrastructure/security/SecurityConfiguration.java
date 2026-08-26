@@ -1,7 +1,7 @@
 package com.kmultan.claims.infrastructure.security;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.kmultan.platform.security.ResourceServerSecurityConfiguration;
+import java.util.List;
+
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -16,7 +16,8 @@ import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
-import java.util.List;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.kmultan.platform.security.ResourceServerSecurityConfiguration;
 
 /**
  * URL-level rules for claim-service. Everything under /api needs a token except
@@ -30,11 +31,18 @@ public class SecurityConfiguration {
     private static final String[] PUBLIC_ENDPOINTS = {"/api/v1/auth/login"};
 
     @Bean
-    public SecurityFilterChain claimApi(HttpSecurity http, JwtDecoder jwtDecoder,
-                                        JwtAuthenticationConverter jwtAuthenticationConverter, ObjectMapper objectMapper) throws Exception {
-        return ResourceServerSecurityConfiguration.statelessBearerApi(http, jwtDecoder, jwtAuthenticationConverter, objectMapper,
-                rules -> rules.requestMatchers(PUBLIC_ENDPOINTS).permitAll()
-                              .requestMatchers("/api/**").authenticated());
+    public SecurityFilterChain claimApi(
+            HttpSecurity http,
+            JwtDecoder jwtDecoder,
+            JwtAuthenticationConverter jwtAuthenticationConverter,
+            ObjectMapper objectMapper)
+            throws Exception {
+        return ResourceServerSecurityConfiguration.statelessBearerApi(
+                http, jwtDecoder, jwtAuthenticationConverter, objectMapper, rules -> rules.requestMatchers(
+                                PUBLIC_ENDPOINTS)
+                        .permitAll()
+                        .requestMatchers("/api/**")
+                        .authenticated());
     }
 
     @Bean
@@ -43,12 +51,14 @@ public class SecurityConfiguration {
     }
 
     @Bean
-    public CorsConfigurationSource corsConfigurationSource(@Value("${claims.cors.allowed-origins}") List<String> allowedOrigins) {
+    public CorsConfigurationSource corsConfigurationSource(
+            @Value("${claims.cors.allowed-origins}") List<String> allowedOrigins) {
         CorsConfiguration configuration = new CorsConfiguration();
         configuration.setAllowedOrigins(allowedOrigins);
         configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS"));
         configuration.setAllowedHeaders(List.of("*"));
-        configuration.setExposedHeaders(List.of("Location", "Idempotent-Replayed", "X-RateLimit-Remaining", "Retry-After"));
+        configuration.setExposedHeaders(
+                List.of("Location", "Idempotent-Replayed", "X-RateLimit-Remaining", "Retry-After"));
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/api/**", configuration);
         return source;

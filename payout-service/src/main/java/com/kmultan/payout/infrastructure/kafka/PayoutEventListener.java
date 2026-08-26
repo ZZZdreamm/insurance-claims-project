@@ -1,15 +1,16 @@
 package com.kmultan.payout.infrastructure.kafka;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.kmultan.payout.application.PayoutEvent;
-import com.kmultan.payout.application.PayoutSaga;
+import java.io.IOException;
+
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.stereotype.Component;
 
-import java.io.IOException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.kmultan.payout.application.PayoutEvent;
+import com.kmultan.payout.application.PayoutSaga;
 
 /** The saga's second step reacts to this service's own FUNDS_RESERVED fact (separate consumer group). */
 @Component
@@ -33,7 +34,14 @@ public class PayoutEventListener {
                 payoutSaga.onFundsReserved(event);
             }
         } catch (RuntimeException | IOException exception) {
-            log.error("Failed to handle {}-{}@{} key={}: {}", consumerRecord.topic(), consumerRecord.partition(), consumerRecord.offset(), consumerRecord.key(), exception.toString(), exception);
+            log.error(
+                    "Failed to handle {}-{}@{} key={}: {}",
+                    consumerRecord.topic(),
+                    consumerRecord.partition(),
+                    consumerRecord.offset(),
+                    consumerRecord.key(),
+                    exception.toString(),
+                    exception);
             throw exception;
         }
     }

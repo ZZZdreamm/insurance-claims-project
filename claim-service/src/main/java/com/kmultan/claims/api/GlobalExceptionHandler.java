@@ -1,8 +1,7 @@
 package com.kmultan.claims.api;
 
-import com.kmultan.claims.domain.ClaimNotFoundException;
-import com.kmultan.claims.domain.InvalidStateTransitionException;
-import com.kmultan.platform.web.ProblemDetails;
+import java.util.List;
+
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
@@ -11,7 +10,9 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
-import java.util.List;
+import com.kmultan.claims.domain.ClaimNotFoundException;
+import com.kmultan.claims.domain.InvalidStateTransitionException;
+import com.kmultan.platform.web.ProblemDetails;
 
 /** Maps domain and access errors to RFC 9457 problem+json responses. */
 @RestControllerAdvice
@@ -39,7 +40,9 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(ObjectOptimisticLockingFailureException.class)
     ProblemDetail optimisticLock(ObjectOptimisticLockingFailureException exception) {
-        return ProblemDetails.of(HttpStatus.CONFLICT, "Concurrent modification",
+        return ProblemDetails.of(
+                HttpStatus.CONFLICT,
+                "Concurrent modification",
                 "The claim was modified by someone else. Reload and retry.");
     }
 
@@ -54,7 +57,8 @@ public class GlobalExceptionHandler {
                 .map(fieldError -> fieldError.getField() + ": " + fieldError.getDefaultMessage())
                 .sorted()
                 .toList();
-        ProblemDetail problemDetail = ProblemDetails.of(HttpStatus.BAD_REQUEST, "Validation failed", "Request body is invalid");
+        ProblemDetail problemDetail =
+                ProblemDetails.of(HttpStatus.BAD_REQUEST, "Validation failed", "Request body is invalid");
         problemDetail.setProperty("errors", errors);
         return problemDetail;
     }

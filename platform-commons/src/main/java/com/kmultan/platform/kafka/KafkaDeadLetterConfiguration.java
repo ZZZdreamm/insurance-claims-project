@@ -26,7 +26,8 @@ public class KafkaDeadLetterConfiguration {
 
     @Bean
     public DefaultErrorHandler kafkaListenerErrorHandler(KafkaTemplate<String, String> kafkaTemplate) {
-        DeadLetterPublishingRecoverer recoverer = new DeadLetterPublishingRecoverer(kafkaTemplate,
+        DeadLetterPublishingRecoverer recoverer = new DeadLetterPublishingRecoverer(
+                kafkaTemplate,
                 (ConsumerRecord<?, ?> failedRecord, Exception exception) ->
                         new TopicPartition(failedRecord.topic() + DEAD_LETTER_SUFFIX, failedRecord.partition()));
         ExponentialBackOff backOff = new ExponentialBackOff(INITIAL_BACKOFF_MILLIS, BACKOFF_MULTIPLIER);

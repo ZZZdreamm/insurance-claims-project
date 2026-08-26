@@ -1,8 +1,8 @@
 package com.kmultan.platform.security;
 
-import org.springframework.security.oauth2.jwt.Jwt;
-
 import java.util.List;
+
+import org.springframework.security.oauth2.jwt.Jwt;
 
 /** Names of the custom claims claim-service puts into its tokens. */
 public final class JwtClaims {

@@ -1,6 +1,9 @@
 package com.kmultan.payout.api;
 
-import com.kmultan.platform.kafka.KafkaDeadLetterConfiguration;
+import java.time.Duration;
+import java.util.List;
+import java.util.UUID;
+
 import org.apache.kafka.clients.consumer.Consumer;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.consumer.ConsumerRecords;
@@ -13,9 +16,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.time.Duration;
-import java.util.List;
-import java.util.UUID;
+import com.kmultan.platform.kafka.KafkaDeadLetterConfiguration;
 
 /**
  * Operational endpoint: replay dead-lettered events from {@code <topic>.DLT}
@@ -36,8 +37,10 @@ public class DeadLetterQueueController {
     private final KafkaTemplate<String, String> kafkaTemplate;
     private final String claimsTopic;
 
-    public DeadLetterQueueController(ConsumerFactory<String, String> consumerFactory, KafkaTemplate<String, String> kafkaTemplate,
-                                     @Value("${payout.claims-topic}") String claimsTopic) {
+    public DeadLetterQueueController(
+            ConsumerFactory<String, String> consumerFactory,
+            KafkaTemplate<String, String> kafkaTemplate,
+            @Value("${payout.claims-topic}") String claimsTopic) {
         this.consumerFactory = consumerFactory;
         this.kafkaTemplate = kafkaTemplate;
         this.claimsTopic = claimsTopic;
@@ -51,7 +54,8 @@ public class DeadLetterQueueController {
         String sourceTopic = topic == null ? claimsTopic : topic;
         String deadLetterTopic = sourceTopic + KafkaDeadLetterConfiguration.DEAD_LETTER_SUFFIX;
         int replayed = 0;
-        try (Consumer<String, String> consumer = consumerFactory.createConsumer(REPLAY_GROUP_ID, "replay-" + UUID.randomUUID())) {
+        try (Consumer<String, String> consumer =
+                consumerFactory.createConsumer(REPLAY_GROUP_ID, "replay-" + UUID.randomUUID())) {
             consumer.subscribe(List.of(deadLetterTopic));
             int idlePolls = 0;
             while (idlePolls < IDLE_POLLS_BEFORE_STOP) {
@@ -61,7 +65,8 @@ public class DeadLetterQueueController {
                     continue;
                 }
                 for (ConsumerRecord<String, String> deadLetter : deadLetters) {
-                    ProducerRecord<String, String> replayRecord = new ProducerRecord<>(sourceTopic, deadLetter.key(), deadLetter.value());
+                    ProducerRecord<String, String> replayRecord =
+                            new ProducerRecord<>(sourceTopic, deadLetter.key(), deadLetter.value());
                     deadLetter.headers().forEach(header -> {
                         if (!header.key().startsWith(INTERNAL_HEADER_PREFIX)) {
                             replayRecord.headers().add(header);

@@ -18,12 +18,21 @@ public record ClaimDocument(
         String status,
         String rejectionReason,
         Instant lastEventAt,
-        String lastEventType
-) {
+        String lastEventType) {
     public static ClaimDocument from(ClaimEventEnvelope event) {
         ClaimEventEnvelope.Snapshot snapshot = event.claim();
-        return new ClaimDocument(event.claimId(), snapshot.claimNumber(), snapshot.policyNumber(), snapshot.plateNumber(), snapshot.incidentDate(),
-                snapshot.description(), snapshot.estimatedAmount(), snapshot.approvedAmount(), snapshot.status(), snapshot.rejectionReason(),
-                event.occurredAt(), event.eventType());
+        return new ClaimDocument(
+                event.claimId(),
+                snapshot.claimNumber(),
+                snapshot.policyNumber(),
+                snapshot.plateNumber(),
+                snapshot.incidentDate(),
+                snapshot.description(),
+                snapshot.estimatedAmount(),
+                snapshot.approvedAmount(),
+                snapshot.status(),
+                snapshot.rejectionReason(),
+                event.occurredAt(),
+                event.eventType());
     }
 }

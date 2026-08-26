@@ -1,8 +1,8 @@
 package com.kmultan.claims.infrastructure.security;
 
-import org.springframework.boot.context.properties.ConfigurationProperties;
-
 import java.time.Duration;
+
+import org.springframework.boot.context.properties.ConfigurationProperties;
 
 /** Token issuing and demo-account settings; the signing secret itself lives in {@code platform.security}. */
 @ConfigurationProperties(prefix = "claims.auth")

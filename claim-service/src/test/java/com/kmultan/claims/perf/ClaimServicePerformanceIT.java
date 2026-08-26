@@ -1,17 +1,9 @@
 package com.kmultan.claims.perf;
 
-import com.kmultan.claims.AbstractIntegrationTest;
-import com.kmultan.claims.application.ClaimService;
-import com.kmultan.claims.domain.Claim;
-import com.kmultan.claims.domain.ClaimStatus;
-import com.kmultan.platform.outbox.OutboxEventRepository;
-import com.kmultan.platform.security.TestJwtTokenFactory;
-import org.junit.jupiter.api.Tag;
-import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
-import org.springframework.test.context.TestPropertySource;
-import org.springframework.test.web.servlet.MockMvc;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.awaitility.Awaitility.await;
+import static org.springframework.http.MediaType.APPLICATION_JSON;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 
 import java.time.Duration;
 import java.time.LocalDate;
@@ -23,10 +15,19 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.awaitility.Awaitility.await;
-import static org.springframework.http.MediaType.APPLICATION_JSON;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import org.junit.jupiter.api.Tag;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
+import org.springframework.test.context.TestPropertySource;
+import org.springframework.test.web.servlet.MockMvc;
+
+import com.kmultan.claims.AbstractIntegrationTest;
+import com.kmultan.claims.application.ClaimService;
+import com.kmultan.claims.domain.Claim;
+import com.kmultan.claims.domain.ClaimStatus;
+import com.kmultan.platform.outbox.OutboxEventRepository;
+import com.kmultan.platform.security.TestJwtTokenFactory;
 
 /**
  * Performance smoke on real Postgres/Kafka/Redis via Testcontainers. Thresholds
@@ -44,14 +45,21 @@ class ClaimServicePerformanceIT extends AbstractIntegrationTest {
     private static final int SUBMITS_PER_THREAD = 25;
     private static final int CHOREOGRAPHY_CLAIMS = 50;
 
-    @Autowired MockMvc mockMvc;
-    @Autowired ClaimService claimService;
-    @Autowired OutboxEventRepository outboxEvents;
+    @Autowired
+    MockMvc mockMvc;
 
-    private static final String BODY = """
+    @Autowired
+    ClaimService claimService;
+
+    @Autowired
+    OutboxEventRepository outboxEvents;
+
+    private static final String BODY =
+            """
             {"policyNumber":"POL-PERF","plateNumber":"PF 1","incidentDate":"%s",
              "description":"Performance run: rear bumper scratched in a car park","estimatedAmount":400}
-            """.formatted(LocalDate.now());
+            """
+                    .formatted(LocalDate.now());
 
     @Test
     void submitLatencyUnderConcurrency_andOutboxDrains() throws Exception {
@@ -66,10 +74,16 @@ class ClaimServicePerformanceIT extends AbstractIntegrationTest {
                     int created = 0;
                     for (int submission = 0; submission < SUBMITS_PER_THREAD; submission++) {
                         long requestStartedAt = System.nanoTime();
-                        int statusCode = mockMvc.perform(post("/api/v1/claims").header("Authorization", bearer)
-                                        .header("Idempotency-Key", UUID.randomUUID().toString())
-                                        .contentType(APPLICATION_JSON).content(BODY))
-                                .andReturn().getResponse().getStatus();
+                        int statusCode = mockMvc.perform(post("/api/v1/claims")
+                                        .header("Authorization", bearer)
+                                        .header(
+                                                "Idempotency-Key",
+                                                UUID.randomUUID().toString())
+                                        .contentType(APPLICATION_JSON)
+                                        .content(BODY))
+                                .andReturn()
+                                .getResponse()
+                                .getStatus();
                         httpLatency.record((System.nanoTime() - requestStartedAt) / 1_000_000);
                         if (statusCode == 201) created++;
                     }
@@ -79,7 +93,8 @@ class ClaimServicePerformanceIT extends AbstractIntegrationTest {
             int createdTotal = 0;
             for (Future<Integer> result : results) createdTotal += result.get();
             long wallMillis = System.currentTimeMillis() - startedAtMillis;
-            System.out.println("PERF " + httpLatency.summary("POST /api/v1/claims (" + THREADS + " threads)", wallMillis));
+            System.out.println(
+                    "PERF " + httpLatency.summary("POST /api/v1/claims (" + THREADS + " threads)", wallMillis));
             assertThat(createdTotal).isEqualTo(THREADS * SUBMITS_PER_THREAD);
             assertThat(httpLatency.percentile(95)).as("p95 submit latency").isLessThan(1000);
         } finally {
@@ -90,7 +105,9 @@ class ClaimServicePerformanceIT extends AbstractIntegrationTest {
         long drainStartedAt = System.currentTimeMillis();
         await().atMost(Duration.ofSeconds(60)).until(() -> outboxEvents.countByPublishedAtIsNull() == 0);
         long drainMillis = System.currentTimeMillis() - drainStartedAt;
-        System.out.printf("PERF %-32s pending drained in %d ms (poll interval 1000 ms, batch 100)%n", "outbox relay", drainMillis);
+        System.out.printf(
+                "PERF %-32s pending drained in %d ms (poll interval 1000 ms, batch 100)%n",
+                "outbox relay", drainMillis);
         assertThat(drainMillis).isLessThan(30_000);
     }
 
@@ -99,13 +116,21 @@ class ClaimServicePerformanceIT extends AbstractIntegrationTest {
         List<Claim> claims = new ArrayList<>();
         long startedAtMillis = System.currentTimeMillis();
         for (int index = 0; index < CHOREOGRAPHY_CLAIMS; index++) {
-            claims.add(claimService.submit("POL-CT", "CT " + index, LocalDate.now(), "Choreography throughput claim #" + index, null, List.of()));
+            claims.add(claimService.submit(
+                    "POL-CT",
+                    "CT " + index,
+                    LocalDate.now(),
+                    "Choreography throughput claim #" + index,
+                    null,
+                    List.of()));
         }
-        await().atMost(Duration.ofSeconds(90)).untilAsserted(() ->
-                assertThat(claims.stream().filter(claim -> claimService.get(claim.getId()).getStatus() == ClaimStatus.PENDING_REVIEW).count())
-                        .isEqualTo(CHOREOGRAPHY_CLAIMS));
+        await().atMost(Duration.ofSeconds(90)).untilAsserted(() -> assertThat(claims.stream()
+                        .filter(claim -> claimService.get(claim.getId()).getStatus() == ClaimStatus.PENDING_REVIEW)
+                        .count())
+                .isEqualTo(CHOREOGRAPHY_CLAIMS));
         long wallMillis = System.currentTimeMillis() - startedAtMillis;
-        System.out.printf("PERF %-32s %d claims submitted -> triaged (2 Kafka hops each) in %d ms (%.1f claims/s)%n",
+        System.out.printf(
+                "PERF %-32s %d claims submitted -> triaged (2 Kafka hops each) in %d ms (%.1f claims/s)%n",
                 "submit -> PENDING_REVIEW", CHOREOGRAPHY_CLAIMS, wallMillis, CHOREOGRAPHY_CLAIMS * 1000.0 / wallMillis);
         assertThat(wallMillis).isLessThan(60_000);
     }

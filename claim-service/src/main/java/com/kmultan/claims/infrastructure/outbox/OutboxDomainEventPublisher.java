@@ -1,10 +1,11 @@
 package com.kmultan.claims.infrastructure.outbox;
 
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Component;
+
 import com.kmultan.claims.domain.event.ClaimEvent;
 import com.kmultan.claims.domain.event.DomainEventPublisher;
 import com.kmultan.platform.outbox.OutboxWriter;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.stereotype.Component;
 
 /**
  * Writes the event into the outbox table inside the caller's transaction.
@@ -28,6 +29,13 @@ public class OutboxDomainEventPublisher implements DomainEventPublisher {
 
     @Override
     public void publish(ClaimEvent event) {
-        outbox.write(topic, event.eventId(), "Claim", event.claimId(), event.eventType().name(), event, event.occurredAt());
+        outbox.write(
+                topic,
+                event.eventId(),
+                "Claim",
+                event.claimId(),
+                event.eventType().name(),
+                event,
+                event.occurredAt());
     }
 }

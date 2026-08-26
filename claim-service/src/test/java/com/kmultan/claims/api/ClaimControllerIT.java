@@ -1,22 +1,5 @@
 package com.kmultan.claims.api;
 
-import com.kmultan.claims.AbstractIntegrationTest;
-import com.kmultan.claims.domain.Claim;
-import com.kmultan.claims.domain.ClaimRepository;
-import com.kmultan.platform.security.TestJwtTokenFactory;
-import org.junit.jupiter.api.Test;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
-import org.springframework.mock.web.MockMultipartFile;
-import org.springframework.orm.ObjectOptimisticLockingFailureException;
-import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.transaction.support.TransactionTemplate;
-
-import java.time.Duration;
-import java.time.LocalDate;
-import java.util.UUID;
-
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.awaitility.Awaitility.await;
@@ -29,26 +12,60 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import java.time.Duration;
+import java.time.LocalDate;
+import java.util.UUID;
+
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
+import org.springframework.mock.web.MockMultipartFile;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.transaction.support.TransactionTemplate;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.kmultan.claims.AbstractIntegrationTest;
+import com.kmultan.claims.domain.Claim;
+import com.kmultan.claims.domain.ClaimRepository;
+import com.kmultan.platform.security.TestJwtTokenFactory;
+
 /** Real Postgres + Kafka: HTTP contract, multipart photos, and the lifecycle through the review API. */
 @AutoConfigureMockMvc
 class ClaimControllerIT extends AbstractIntegrationTest {
 
     private static final TestJwtTokenFactory TOKENS = new TestJwtTokenFactory();
 
-    @Autowired MockMvc mockMvc;
-    @Autowired ClaimRepository claimRepository;
-    @Autowired TransactionTemplate transactionTemplate;
+    @Autowired
+    MockMvc mockMvc;
 
-    private String user() { return TOKENS.bearer("anna", "POLICYHOLDER"); }
-    private String adjuster() { return TOKENS.bearer("alice", "ADJUSTER"); }
-    private String finance() { return TOKENS.bearer("finance", "FINANCE"); }
+    @Autowired
+    ClaimRepository claimRepository;
 
-    private static final String VALID = """
+    @Autowired
+    TransactionTemplate transactionTemplate;
+
+    private String user() {
+        return TOKENS.bearer("anna", "POLICYHOLDER");
+    }
+
+    private String adjuster() {
+        return TOKENS.bearer("alice", "ADJUSTER");
+    }
+
+    private String finance() {
+        return TOKENS.bearer("finance", "FINANCE");
+    }
+
+    private static final String VALID =
+            """
             {"policyNumber":"POL-123","plateNumber":"WA 12345","incidentDate":"%s",
              "description":"Rear-ended at a red light, bumper and tail light damaged","estimatedAmount":2500.00}
-            """.formatted(LocalDate.now().minusDays(2));
+            """
+                    .formatted(LocalDate.now().minusDays(2));
 
-    @Autowired ObjectMapper objectMapper;
+    @Autowired
+    ObjectMapper objectMapper;
 
     private String idOf(String responseBody) throws Exception {
         return objectMapper.readTree(responseBody).get("id").asText();
@@ -56,7 +73,10 @@ class ClaimControllerIT extends AbstractIntegrationTest {
 
     @Test
     void submitReturns201WithGeneratedClaimNumber() throws Exception {
-        mockMvc.perform(post("/api/v1/claims").header("Authorization", user()).contentType(APPLICATION_JSON).content(VALID))
+        mockMvc.perform(post("/api/v1/claims")
+                        .header("Authorization", user())
+                        .contentType(APPLICATION_JSON)
+                        .content(VALID))
                 .andExpect(status().isCreated())
                 .andExpect(header().exists("Location"))
                 .andExpect(jsonPath("$.claimNumber").value(org.hamcrest.Matchers.matchesPattern("CLM-\\d{4}-\\d{6}")))
@@ -71,11 +91,13 @@ class ClaimControllerIT extends AbstractIntegrationTest {
         String body = mockMvc.perform(multipart("/api/v1/claims")
                         .file(new MockMultipartFile("claim", "", "application/json", VALID.getBytes()))
                         .file(new MockMultipartFile("photos", "front.png", "image/png", png))
-                        .file(new MockMultipartFile("photos", "side.jpg", "image/jpeg", new byte[]{1, 2, 3}))
+                        .file(new MockMultipartFile("photos", "side.jpg", "image/jpeg", new byte[] {1, 2, 3}))
                         .header("Authorization", user()))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.photoIds.length()").value(2))
-                .andReturn().getResponse().getContentAsString();
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
         String id = idOf(body);
         String photoId = objectMapper.readTree(body).get("photoIds").get(0).asText();
 
@@ -86,15 +108,18 @@ class ClaimControllerIT extends AbstractIntegrationTest {
 
         mockMvc.perform(multipart("/api/v1/claims")
                         .file(new MockMultipartFile("claim", "", "application/json", VALID.getBytes()))
-                        .file(new MockMultipartFile("photos", "doc.pdf", "application/pdf", new byte[]{1}))
+                        .file(new MockMultipartFile("photos", "doc.pdf", "application/pdf", new byte[] {1}))
                         .header("Authorization", user()))
                 .andExpect(status().isUnprocessableEntity());
     }
 
     @Test
     void validationErrorsAreProblemDetails() throws Exception {
-        mockMvc.perform(post("/api/v1/claims").header("Authorization", user()).contentType(APPLICATION_JSON)
-                        .content("{\"policyNumber\":\"\",\"plateNumber\":\"!!\",\"incidentDate\":\"2999-01-01\",\"description\":\"short\"}"))
+        mockMvc.perform(post("/api/v1/claims")
+                        .header("Authorization", user())
+                        .contentType(APPLICATION_JSON)
+                        .content("{\"policyNumber\":\"\",\"plateNumber\":\"!!\","
+                                + "\"incidentDate\":\"2999-01-01\",\"description\":\"short\"}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.title").value("Validation failed"))
                 .andExpect(jsonPath("$.errors.length()").value(4));
@@ -109,8 +134,12 @@ class ClaimControllerIT extends AbstractIntegrationTest {
 
     @Test
     void illegalTransitionIs409() throws Exception {
-        Claim claim = transactionTemplate.execute(status -> claimRepository.save(Claim.submit("CLM-T-1", "P", "X1", LocalDate.now(), "desc desc desc", null)));
-        mockMvc.perform(post("/api/v1/reviews/{id}/approve", claim.getId()).header("Authorization", TOKENS.bearer("admin", "ADMIN")).contentType(APPLICATION_JSON).content("{\"approvedAmount\":100}"))
+        Claim claim = transactionTemplate.execute(status ->
+                claimRepository.save(Claim.submit("CLM-T-1", "P", "X1", LocalDate.now(), "desc desc desc", null)));
+        mockMvc.perform(post("/api/v1/reviews/{id}/approve", claim.getId())
+                        .header("Authorization", TOKENS.bearer("admin", "ADMIN"))
+                        .contentType(APPLICATION_JSON)
+                        .content("{\"approvedAmount\":100}"))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.title").value("Invalid state transition"));
         mockMvc.perform(post("/api/v1/claims/{id}/retry-payout", claim.getId()).header("Authorization", finance()))
@@ -119,44 +148,64 @@ class ClaimControllerIT extends AbstractIntegrationTest {
 
     @Test
     void fullLifecycleThroughApi() throws Exception {
-        String id = idOf(mockMvc.perform(post("/api/v1/claims").header("Authorization", user()).contentType(APPLICATION_JSON).content(VALID))
-                .andReturn().getResponse().getContentAsString());
+        String id = idOf(mockMvc.perform(post("/api/v1/claims")
+                        .header("Authorization", user())
+                        .contentType(APPLICATION_JSON)
+                        .content(VALID))
+                .andReturn()
+                .getResponse()
+                .getContentAsString());
 
         // assessment-service (fake) reacts to CLAIM_SUBMITTED; the claim shows up in the review queue
-        await().atMost(Duration.ofSeconds(20)).untilAsserted(() ->
-                mockMvc.perform(get("/api/v1/reviews").header("Authorization", adjuster())).andExpect(jsonPath("$[?(@.id == '" + id + "')].severity").value("MODERATE")));
-        mockMvc.perform(get("/api/v1/claims").header("Authorization", adjuster()).param("status", "PENDING_REVIEW"))
+        await().atMost(Duration.ofSeconds(20)).untilAsserted(() -> mockMvc.perform(
+                        get("/api/v1/reviews").header("Authorization", adjuster()))
+                .andExpect(jsonPath("$[?(@.id == '" + id + "')].severity").value("MODERATE")));
+        mockMvc.perform(get("/api/v1/claims")
+                        .header("Authorization", adjuster())
+                        .param("status", "PENDING_REVIEW"))
                 .andExpect(jsonPath("$.content[?(@.id == '" + id + "')]").exists());
 
         mockMvc.perform(post("/api/v1/reviews/{id}/claim", id).header("Authorization", adjuster()))
-                .andExpect(status().isOk()).andExpect(jsonPath("$.reviewAssignee").value("alice"));
-        mockMvc.perform(post("/api/v1/reviews/{id}/claim", id).header("Authorization", TOKENS.bearer("bob", "ADJUSTER")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.reviewAssignee").value("alice"));
+        mockMvc.perform(post("/api/v1/reviews/{id}/claim", id)
+                        .header("Authorization", TOKENS.bearer("bob", "ADJUSTER")))
                 .andExpect(status().isConflict());
-        mockMvc.perform(post("/api/v1/reviews/{id}/approve", id).header("Authorization", adjuster()).contentType(APPLICATION_JSON).content("{\"approvedAmount\":2000.99}"))
+        mockMvc.perform(post("/api/v1/reviews/{id}/approve", id)
+                        .header("Authorization", adjuster())
+                        .contentType(APPLICATION_JSON)
+                        .content("{\"approvedAmount\":2000.99}"))
                 .andExpect(jsonPath("$.status").value("APPROVED"));
 
         // payout-service (fake) fails on .99 -> PAYOUT_FAILED -> retry with corrected amount -> PAID
-        await().atMost(Duration.ofSeconds(30)).untilAsserted(() ->
-                mockMvc.perform(get("/api/v1/claims/{id}", id).header("Authorization", user())).andExpect(jsonPath("$.status").value("PAYOUT_FAILED")));
-        mockMvc.perform(post("/api/v1/claims/{id}/retry-payout", id).header("Authorization", finance()).contentType(APPLICATION_JSON).content("{\"approvedAmount\":2001}"))
+        await().atMost(Duration.ofSeconds(30)).untilAsserted(() -> mockMvc.perform(
+                        get("/api/v1/claims/{id}", id).header("Authorization", user()))
+                .andExpect(jsonPath("$.status").value("PAYOUT_FAILED")));
+        mockMvc.perform(post("/api/v1/claims/{id}/retry-payout", id)
+                        .header("Authorization", finance())
+                        .contentType(APPLICATION_JSON)
+                        .content("{\"approvedAmount\":2001}"))
                 .andExpect(jsonPath("$.status").value("APPROVED"));
-        await().atMost(Duration.ofSeconds(30)).untilAsserted(() ->
-                mockMvc.perform(get("/api/v1/claims/{id}", id).header("Authorization", user())).andExpect(jsonPath("$.status").value("PAID")));
+        await().atMost(Duration.ofSeconds(30)).untilAsserted(() -> mockMvc.perform(
+                        get("/api/v1/claims/{id}", id).header("Authorization", user()))
+                .andExpect(jsonPath("$.status").value("PAID")));
     }
 
     @Test
     void optimisticLockingRejectsStaleWrite() {
-        Claim saved = transactionTemplate.execute(status -> claimRepository.save(Claim.submit("CLM-T-2", "P", "X2", LocalDate.now(), "desc desc desc", null)));
+        Claim saved = transactionTemplate.execute(status ->
+                claimRepository.save(Claim.submit("CLM-T-2", "P", "X2", LocalDate.now(), "desc desc desc", null)));
         UUID id = saved.getId();
 
         Claim firstCopy = claimRepository.findById(id).orElseThrow();
         Claim secondCopy = claimRepository.findById(id).orElseThrow();
 
         firstCopy.withdraw();
-        transactionTemplate.executeWithoutResult(status -> claimRepository.save(firstCopy));   // version -> 1
+        transactionTemplate.executeWithoutResult(status -> claimRepository.save(firstCopy)); // version -> 1
 
         secondCopy.withdraw();
-        assertThatThrownBy(() -> transactionTemplate.executeWithoutResult(status -> claimRepository.saveAndFlush(secondCopy)))
+        assertThatThrownBy(() ->
+                        transactionTemplate.executeWithoutResult(status -> claimRepository.saveAndFlush(secondCopy)))
                 .isInstanceOf(ObjectOptimisticLockingFailureException.class);
         assertThat(claimRepository.findById(id).orElseThrow().getVersion()).isEqualTo(1);
     }

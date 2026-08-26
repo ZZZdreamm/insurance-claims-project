@@ -1,14 +1,11 @@
 package com.kmultan.claims.infrastructure.redis;
 
-import com.kmultan.claims.AbstractIntegrationTest;
-import org.junit.jupiter.api.Test;
-import com.kmultan.platform.security.TestJwtTokenFactory;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
-import org.springframework.context.annotation.Import;
-import org.springframework.test.context.TestPropertySource;
-import org.springframework.test.web.servlet.MockMvc;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.http.MediaType.APPLICATION_JSON;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.time.LocalDate;
 import java.util.ArrayList;
@@ -19,12 +16,16 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.springframework.http.MediaType.APPLICATION_JSON;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
+import org.springframework.context.annotation.Import;
+import org.springframework.test.context.TestPropertySource;
+import org.springframework.test.web.servlet.MockMvc;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.kmultan.claims.AbstractIntegrationTest;
+import com.kmultan.platform.security.TestJwtTokenFactory;
 
 /** Real Redis: client retries with the same Idempotency-Key never create a second claim; runaway clients get 429. */
 @AutoConfigureMockMvc
@@ -34,81 +35,145 @@ class RedisGuardsIT extends AbstractIntegrationTest {
 
     private static final TestJwtTokenFactory TOKENS = new TestJwtTokenFactory();
 
-    @Autowired MockMvc mockMvc;
-    @Autowired ObjectMapper objectMapper;
-    @Autowired MutableClockConfiguration.MutableClock mutableClock;
-    private String user() { return TOKENS.bearer("anna", "POLICYHOLDER"); }
+    @Autowired
+    MockMvc mockMvc;
 
-    private static final String VALID = """
+    @Autowired
+    ObjectMapper objectMapper;
+
+    @Autowired
+    MutableClockConfiguration.MutableClock mutableClock;
+
+    private String user() {
+        return TOKENS.bearer("anna", "POLICYHOLDER");
+    }
+
+    private static final String VALID =
+            """
             {"policyNumber":"POL-RD","plateNumber":"RD 1","incidentDate":"%s",
              "description":"Redis guards integration test claim","estimatedAmount":100}
-            """.formatted(LocalDate.now());
+            """
+                    .formatted(LocalDate.now());
 
     @Test
     void sameIdempotencyKeyReplaysTheFirstClaim() throws Exception {
         String key = "mobile-" + UUID.randomUUID();
-        String first = mockMvc.perform(post("/api/v1/claims").header("Authorization", user()).header("X-Client-Id", "idem-test").header("Idempotency-Key", key)
-                        .contentType(APPLICATION_JSON).content(VALID))
+        String first = mockMvc.perform(post("/api/v1/claims")
+                        .header("Authorization", user())
+                        .header("X-Client-Id", "idem-test")
+                        .header("Idempotency-Key", key)
+                        .contentType(APPLICATION_JSON)
+                        .content(VALID))
                 .andExpect(status().isCreated())
-                .andReturn().getResponse().getContentAsString();
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
         String id = objectMapper.readTree(first).get("id").asText();
 
-        mockMvc.perform(post("/api/v1/claims").header("Authorization", user()).header("X-Client-Id", "idem-test").header("Idempotency-Key", key)
-                        .contentType(APPLICATION_JSON).content(VALID))
+        mockMvc.perform(post("/api/v1/claims")
+                        .header("Authorization", user())
+                        .header("X-Client-Id", "idem-test")
+                        .header("Idempotency-Key", key)
+                        .contentType(APPLICATION_JSON)
+                        .content(VALID))
                 .andExpect(status().isOk())
                 .andExpect(header().string("Idempotent-Replayed", "true"))
                 .andExpect(header().string("Location", "/api/v1/claims/" + id))
                 .andExpect(jsonPath("$.id").value(id));
 
         // a different key is a different submission
-        String second = mockMvc.perform(post("/api/v1/claims").header("Authorization", user()).header("X-Client-Id", "idem-test").header("Idempotency-Key", "mobile-" + UUID.randomUUID())
-                        .contentType(APPLICATION_JSON).content(VALID))
-                .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString();
+        String second = mockMvc.perform(post("/api/v1/claims")
+                        .header("Authorization", user())
+                        .header("X-Client-Id", "idem-test")
+                        .header("Idempotency-Key", "mobile-" + UUID.randomUUID())
+                        .contentType(APPLICATION_JSON)
+                        .content(VALID))
+                .andExpect(status().isCreated())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
         assertThat(objectMapper.readTree(second).get("id").asText()).isNotEqualTo(id);
     }
 
     @Test
     void failedSubmissionDoesNotBurnTheKey() throws Exception {
         String key = "mobile-" + UUID.randomUUID();
-        mockMvc.perform(post("/api/v1/claims").header("Authorization", user()).header("X-Client-Id", "idem-test2").header("Idempotency-Key", key)
-                        .contentType(APPLICATION_JSON).content("{\"policyNumber\":\"\"}"))
+        mockMvc.perform(post("/api/v1/claims")
+                        .header("Authorization", user())
+                        .header("X-Client-Id", "idem-test2")
+                        .header("Idempotency-Key", key)
+                        .contentType(APPLICATION_JSON)
+                        .content("{\"policyNumber\":\"\"}"))
                 .andExpect(status().isBadRequest());
-        mockMvc.perform(post("/api/v1/claims").header("Authorization", user()).header("X-Client-Id", "idem-test2").header("Idempotency-Key", key)
-                        .contentType(APPLICATION_JSON).content(VALID))
+        mockMvc.perform(post("/api/v1/claims")
+                        .header("Authorization", user())
+                        .header("X-Client-Id", "idem-test2")
+                        .header("Idempotency-Key", key)
+                        .contentType(APPLICATION_JSON)
+                        .content(VALID))
                 .andExpect(status().isCreated());
-        mockMvc.perform(post("/api/v1/claims").header("Authorization", user()).header("X-Client-Id", "idem-test2").header("Idempotency-Key", "bad key!").contentType(APPLICATION_JSON).content(VALID))
+        mockMvc.perform(post("/api/v1/claims")
+                        .header("Authorization", user())
+                        .header("X-Client-Id", "idem-test2")
+                        .header("Idempotency-Key", "bad key!")
+                        .contentType(APPLICATION_JSON)
+                        .content(VALID))
                 .andExpect(status().isBadRequest());
     }
 
     @Test
     void submissionsAreRateLimitedPerClient() throws Exception {
         String client = "burst-" + UUID.randomUUID();
-        for (int i = 0; i < 5; i++) {
-            mockMvc.perform(post("/api/v1/claims").header("Authorization", user()).header("X-Client-Id", client).contentType(APPLICATION_JSON).content(VALID))
+        for (int index = 0; index < 5; index++) {
+            mockMvc.perform(post("/api/v1/claims")
+                            .header("Authorization", user())
+                            .header("X-Client-Id", client)
+                            .contentType(APPLICATION_JSON)
+                            .content(VALID))
                     .andExpect(status().isCreated())
-                    .andExpect(header().string("X-RateLimit-Remaining", Integer.toString(4 - i)));
+                    .andExpect(header().string("X-RateLimit-Remaining", Integer.toString(4 - index)));
         }
-        mockMvc.perform(post("/api/v1/claims").header("Authorization", user()).header("X-Client-Id", client).contentType(APPLICATION_JSON).content(VALID))
+        mockMvc.perform(post("/api/v1/claims")
+                        .header("Authorization", user())
+                        .header("X-Client-Id", client)
+                        .contentType(APPLICATION_JSON)
+                        .content(VALID))
                 .andExpect(status().isTooManyRequests())
                 .andExpect(header().exists("Retry-After"))
                 .andExpect(jsonPath("$.title").value("Too many submissions"));
         // other clients are unaffected
-        mockMvc.perform(post("/api/v1/claims").header("Authorization", user()).header("X-Client-Id", "other-" + UUID.randomUUID()).contentType(APPLICATION_JSON).content(VALID))
+        mockMvc.perform(post("/api/v1/claims")
+                        .header("Authorization", user())
+                        .header("X-Client-Id", "other-" + UUID.randomUUID())
+                        .contentType(APPLICATION_JSON)
+                        .content(VALID))
                 .andExpect(status().isCreated());
     }
 
     @Test
     void limitResetsWhenTheWindowRollsOver() throws Exception {
         String client = "window-" + UUID.randomUUID();
-        for (int i = 0; i < 5; i++) {
-            mockMvc.perform(post("/api/v1/claims").header("Authorization", user()).header("X-Client-Id", client).contentType(APPLICATION_JSON).content(VALID))
+        for (int index = 0; index < 5; index++) {
+            mockMvc.perform(post("/api/v1/claims")
+                            .header("Authorization", user())
+                            .header("X-Client-Id", client)
+                            .contentType(APPLICATION_JSON)
+                            .content(VALID))
                     .andExpect(status().isCreated());
         }
-        mockMvc.perform(post("/api/v1/claims").header("Authorization", user()).header("X-Client-Id", client).contentType(APPLICATION_JSON).content(VALID))
+        mockMvc.perform(post("/api/v1/claims")
+                        .header("Authorization", user())
+                        .header("X-Client-Id", client)
+                        .contentType(APPLICATION_JSON)
+                        .content(VALID))
                 .andExpect(status().isTooManyRequests());
 
-        mutableClock.advanceSeconds(60);   // next fixed window
-        mockMvc.perform(post("/api/v1/claims").header("Authorization", user()).header("X-Client-Id", client).contentType(APPLICATION_JSON).content(VALID))
+        mutableClock.advanceSeconds(60); // next fixed window
+        mockMvc.perform(post("/api/v1/claims")
+                        .header("Authorization", user())
+                        .header("X-Client-Id", client)
+                        .contentType(APPLICATION_JSON)
+                        .content(VALID))
                 .andExpect(status().isCreated())
                 .andExpect(header().string("X-RateLimit-Remaining", "4"));
     }
@@ -121,15 +186,23 @@ class RedisGuardsIT extends AbstractIntegrationTest {
         ExecutorService pool = Executors.newFixedThreadPool(20);
         try {
             List<Future<Integer>> results = new ArrayList<>();
-            for (int i = 0; i < 40; i++) {
-                results.add(pool.submit((Callable<Integer>) () ->
-                        mockMvc.perform(post("/api/v1/claims").header("Authorization", bearer).header("X-Client-Id", client)
-                                .contentType(APPLICATION_JSON).content(VALID)).andReturn().getResponse().getStatus()));
+            for (int index = 0; index < 40; index++) {
+                results.add(pool.submit((Callable<Integer>) () -> mockMvc.perform(post("/api/v1/claims")
+                                .header("Authorization", bearer)
+                                .header("X-Client-Id", client)
+                                .contentType(APPLICATION_JSON)
+                                .content(VALID))
+                        .andReturn()
+                        .getResponse()
+                        .getStatus()));
             }
-            long created = 0, limited = 0;
+            long created = 0;
+            long limited = 0;
             for (Future<Integer> result : results) {
                 int statusCode = result.get();
-                if (statusCode == 201) created++; else if (statusCode == 429) limited++; else throw new AssertionError("unexpected " + statusCode);
+                if (statusCode == 201) created++;
+                else if (statusCode == 429) limited++;
+                else throw new AssertionError("unexpected " + statusCode);
             }
             assertThat(created).isEqualTo(5);
             assertThat(limited).isEqualTo(35);
@@ -146,16 +219,25 @@ class RedisGuardsIT extends AbstractIntegrationTest {
         ExecutorService pool = Executors.newFixedThreadPool(10);
         try {
             List<Future<Integer>> results = new ArrayList<>();
-            for (int i = 0; i < 10; i++) {
-                String client = "idem-par-" + i;   // separate rate-limit buckets: only idempotency is under test
-                results.add(pool.submit((Callable<Integer>) () ->
-                        mockMvc.perform(post("/api/v1/claims").header("Authorization", bearer).header("X-Client-Id", client).header("Idempotency-Key", key)
-                                .contentType(APPLICATION_JSON).content(VALID)).andReturn().getResponse().getStatus()));
+            for (int index = 0; index < 10; index++) {
+                String client = "idem-par-" + index; // separate rate-limit buckets: only idempotency is under test
+                results.add(pool.submit((Callable<Integer>) () -> mockMvc.perform(post("/api/v1/claims")
+                                .header("Authorization", bearer)
+                                .header("X-Client-Id", client)
+                                .header("Idempotency-Key", key)
+                                .contentType(APPLICATION_JSON)
+                                .content(VALID))
+                        .andReturn()
+                        .getResponse()
+                        .getStatus()));
             }
-            long created = 0, replayedOrInProgress = 0;
+            long created = 0;
+            long replayedOrInProgress = 0;
             for (Future<Integer> result : results) {
                 int statusCode = result.get();
-                if (statusCode == 201) created++; else if (statusCode == 200 || statusCode == 409) replayedOrInProgress++; else throw new AssertionError("unexpected " + statusCode);
+                if (statusCode == 201) created++;
+                else if (statusCode == 200 || statusCode == 409) replayedOrInProgress++;
+                else throw new AssertionError("unexpected " + statusCode);
             }
             assertThat(created).isEqualTo(1);
             assertThat(replayedOrInProgress).isEqualTo(9);
@@ -163,8 +245,13 @@ class RedisGuardsIT extends AbstractIntegrationTest {
             pool.shutdownNow();
         }
         // and once settled, the key replays the single claim
-        mockMvc.perform(post("/api/v1/claims").header("Authorization", bearer).header("X-Client-Id", "idem-par-after").header("Idempotency-Key", key)
-                        .contentType(APPLICATION_JSON).content(VALID))
-                .andExpect(status().isOk()).andExpect(header().string("Idempotent-Replayed", "true"));
+        mockMvc.perform(post("/api/v1/claims")
+                        .header("Authorization", bearer)
+                        .header("X-Client-Id", "idem-par-after")
+                        .header("Idempotency-Key", key)
+                        .contentType(APPLICATION_JSON)
+                        .content(VALID))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Idempotent-Replayed", "true"));
     }
 }

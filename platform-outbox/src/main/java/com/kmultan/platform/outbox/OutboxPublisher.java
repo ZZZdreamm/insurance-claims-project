@@ -1,7 +1,9 @@
 package com.kmultan.platform.outbox;
 
-import io.micrometer.core.instrument.Counter;
-import io.micrometer.core.instrument.MeterRegistry;
+import java.nio.charset.StandardCharsets;
+import java.util.List;
+import java.util.concurrent.TimeUnit;
+
 import org.apache.kafka.clients.producer.ProducerRecord;
 import org.apache.kafka.common.header.internals.RecordHeader;
 import org.slf4j.Logger;
@@ -11,9 +13,8 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.nio.charset.StandardCharsets;
-import java.util.List;
-import java.util.concurrent.TimeUnit;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
 
 /**
  * Polls the outbox and relays events to Kafka.
@@ -39,16 +40,19 @@ public class OutboxPublisher {
     private final Counter publishedCounter;
     private final OutboxTraceContext traceContext;
 
-    public OutboxPublisher(OutboxEventRepository outboxEvents,
-                           KafkaTemplate<String, String> kafkaTemplate,
-                           MeterRegistry meterRegistry,
-                           OutboxTraceContext traceContext,
-                           OutboxProperties properties) {
+    public OutboxPublisher(
+            OutboxEventRepository outboxEvents,
+            KafkaTemplate<String, String> kafkaTemplate,
+            MeterRegistry meterRegistry,
+            OutboxTraceContext traceContext,
+            OutboxProperties properties) {
         this.outboxEvents = outboxEvents;
         this.kafkaTemplate = kafkaTemplate;
         this.traceContext = traceContext;
         this.properties = properties;
-        this.publishedCounter = Counter.builder("outbox.published").description("Outbox events relayed to Kafka").register(meterRegistry);
+        this.publishedCounter = Counter.builder("outbox.published")
+                .description("Outbox events relayed to Kafka")
+                .register(meterRegistry);
         meterRegistry.gauge("outbox.pending", outboxEvents, OutboxEventRepository::countByPublishedAtIsNull);
     }
 
@@ -57,15 +61,21 @@ public class OutboxPublisher {
     public int publishPending() {
         List<OutboxEvent> batch = outboxEvents.lockUnpublishedBatch(properties.batchSize());
         for (OutboxEvent event : batch) {
-            ProducerRecord<String, String> producerRecord = new ProducerRecord<>(event.getTopic(), event.getAggregateId().toString(), event.getPayload());
-            producerRecord.headers()
-                    .add(new RecordHeader("eventId", event.getEventId().toString().getBytes(StandardCharsets.UTF_8)))
+            ProducerRecord<String, String> producerRecord = new ProducerRecord<>(
+                    event.getTopic(), event.getAggregateId().toString(), event.getPayload());
+            producerRecord
+                    .headers()
+                    .add(new RecordHeader(
+                            "eventId", event.getEventId().toString().getBytes(StandardCharsets.UTF_8)))
                     .add(new RecordHeader("eventType", event.getEventType().getBytes(StandardCharsets.UTF_8)))
-                    .add(new RecordHeader("sequence", Long.toString(event.getId()).getBytes(StandardCharsets.UTF_8)));
+                    .add(new RecordHeader(
+                            "sequence", Long.toString(event.getId()).getBytes(StandardCharsets.UTF_8)));
             try {
                 // synchronous per record: keeps strict ordering and lets a broker failure roll the batch back;
                 // the send runs inside the originating trace, so consumers join the same trace
-                traceContext.runInTrace(event.getTraceParent(), "outbox publish " + event.getEventType(),
+                traceContext.runInTrace(
+                        event.getTraceParent(),
+                        "outbox publish " + event.getEventType(),
                         () -> kafkaTemplate.send(producerRecord).get(SEND_TIMEOUT_SECONDS, TimeUnit.SECONDS));
             } catch (Exception exception) {
                 throw new IllegalStateException("Failed to publish outbox event " + event.getEventId(), exception);

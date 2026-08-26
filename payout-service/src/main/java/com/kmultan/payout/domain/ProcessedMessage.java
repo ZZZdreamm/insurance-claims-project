@@ -1,21 +1,31 @@
 package com.kmultan.payout.domain;
 
+import java.time.Instant;
+import java.util.UUID;
+
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 
-import java.time.Instant;
-import java.util.UUID;
-
 /** One row per handled command. Inserted in the same transaction as the side effects. */
 @Entity
 @Table(name = "processed_message")
 public class ProcessedMessage {
-    @Id @Column(name = "message_id") private UUID messageId;
-    @Column(name = "message_type", nullable = false) private String messageType;
-    @Column(name = "processed_at", nullable = false) private Instant processedAt = Instant.now();
+    @Id
+    @Column(name = "message_id")
+    private UUID messageId;
+
+    @Column(name = "message_type", nullable = false)
+    private String messageType;
+
+    @Column(name = "processed_at", nullable = false)
+    private Instant processedAt = Instant.now();
 
     protected ProcessedMessage() {}
-    public ProcessedMessage(UUID messageId, String messageType) { this.messageId = messageId; this.messageType = messageType; }
+
+    public ProcessedMessage(UUID messageId, String messageType) {
+        this.messageId = messageId;
+        this.messageType = messageType;
+    }
 }
