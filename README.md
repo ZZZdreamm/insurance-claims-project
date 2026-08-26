@@ -171,6 +171,20 @@ mvn verify -DskipITs    # unit tests only
 mvn verify -Dperf       # additionally the performance ITs (tag `perf`, excluded by default)
 ```
 
+### Code style
+
+```bash
+mvn spotless:apply      # format every Java module (Palantir Java Format: 4 spaces, 120 columns, import order)
+mvn spotless:check      # what CI runs — fails on unformatted code
+mvn checkstyle:check    # rules the formatter cannot enforce (config/checkstyle/checkstyle.xml)
+```
+
+Both checks are bound to `mvn verify`, so an unformatted file or a naming violation fails the build
+locally, in GitHub Actions and in Jenkins. Checkstyle is opinionated on purpose: identifiers must be
+whole words (no `e`, `r`, `svc`; even loop counters are `index`), no star imports, one top-level class
+per file, `default` in every `switch`, utility classes without public constructors, methods under
+80 lines and complexity under 12 (relaxed for tests). Spring Boot entry points are the only exemption.
+
 Shared test fixtures come from `platform-commons`' test-jar: `TestJwtTokenFactory` mints tokens exactly
 as claim-service does, `KafkaTestConsumer` accumulates records per key for `await()` assertions.
 
