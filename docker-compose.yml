@@ -342,6 +342,8 @@ services:
       - .:/workspace:ro
     extra_hosts:
       - "host.docker.internal:host-gateway"   # Testcontainers inside Jenkins reaches the containers it starts
+    group_add:
+      - "${DOCKER_GID:-1001}"                    # GID of /var/run/docker.sock on the host: stat -c %g /var/run/docker.sock
     deploy:
       resources:
         limits:
