@@ -79,4 +79,28 @@ public interface ClaimRepository extends JpaRepository<Claim, UUID> {
                     "select avg(extract(epoch from (assessed_at - created_at))) from claim where assessed_at is not null",
             nativeQuery = true)
     Double averageSecondsToAssessment();
+
+    /** Review queue with optional filters; null means "no filter". Ordered by SLA due date, oldest first. */
+    @Query(
+            """
+            select c from Claim c
+            where c.status = com.kmultan.claims.domain.ClaimStatus.PENDING_REVIEW
+              and (:assignee is null or c.reviewAssignee = :assignee)
+              and (:unassignedOnly = false or c.reviewAssignee is null)
+              and (:severity is null or c.severity = :severity)
+              and (:escalatedOnly = false or c.escalatedAt is not null)
+            order by c.reviewDueAt asc
+            """)
+    Page<Claim> findReviewQueue(
+            @Param("assignee") String assignee,
+            @Param("unassignedOnly") boolean unassignedOnly,
+            @Param("severity") Severity severity,
+            @Param("escalatedOnly") boolean escalatedOnly,
+            Pageable pageable);
+
+    long countByStatusAndReviewAssigneeIsNull(ClaimStatus status);
+
+    long countByStatusAndReviewAssignee(ClaimStatus status, String assignee);
+
+    long countByStatusAndSeverity(ClaimStatus status, Severity severity);
 }

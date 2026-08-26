@@ -23,6 +23,7 @@ import com.kmultan.claims.domain.ClaimPhoto;
 import com.kmultan.claims.domain.ClaimPhotoRepository;
 import com.kmultan.claims.domain.ClaimRepository;
 import com.kmultan.claims.domain.ClaimStatus;
+import com.kmultan.claims.domain.Severity;
 import com.kmultan.claims.domain.event.ClaimEvent;
 import com.kmultan.claims.domain.event.ClaimEventType;
 import com.kmultan.claims.domain.event.DomainEventPublisher;
@@ -157,6 +158,27 @@ public class ClaimService {
     @Transactional(readOnly = true)
     public List<Claim> openReviews() {
         return claims.findByStatusOrderByReviewDueAtAsc(ClaimStatus.PENDING_REVIEW);
+    }
+
+    public record ReviewQueueFilter(
+            String assignee, boolean unassignedOnly, Severity severity, boolean escalatedOnly) {}
+
+    public record ReviewQueueSummary(long open, long unassigned, long mine, long escalated, long severe) {}
+
+    @Transactional(readOnly = true)
+    public Page<Claim> reviewQueue(ReviewQueueFilter filter, Pageable pageable) {
+        return claims.findReviewQueue(
+                filter.assignee(), filter.unassignedOnly(), filter.severity(), filter.escalatedOnly(), pageable);
+    }
+
+    @Transactional(readOnly = true)
+    public ReviewQueueSummary reviewQueueSummary(String username) {
+        return new ReviewQueueSummary(
+                claims.countByStatus(ClaimStatus.PENDING_REVIEW),
+                claims.countByStatusAndReviewAssigneeIsNull(ClaimStatus.PENDING_REVIEW),
+                claims.countByStatusAndReviewAssignee(ClaimStatus.PENDING_REVIEW, username),
+                claims.countByStatusAndEscalatedAtIsNotNull(ClaimStatus.PENDING_REVIEW),
+                claims.countByStatusAndSeverity(ClaimStatus.PENDING_REVIEW, Severity.SEVERE));
     }
 
     public Claim claimReview(UUID id, String assignee) {

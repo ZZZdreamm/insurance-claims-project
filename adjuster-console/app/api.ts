@@ -1,6 +1,6 @@
 import type {
-  Claim, ClaimEventLogEntry, ClaimStatus, LedgerEntry, LedgerSummary, LoginResponse, Page, ReplayResult, Role,
-  SearchResult, Statistics, SubmitClaimRequest, Usage, UserAccount, UserInfo,
+  Claim, ClaimEventLogEntry, ClaimStatus, LedgerEntry, LedgerSummary, LoginResponse, Page, ReplayResult, ReviewQueueSummary, ReviewScope, Role,
+  SearchResult, Severity, Statistics, SubmitClaimRequest, Usage, UserAccount, UserInfo,
 } from './types';
 
 export const CLAIM_BASE = process.env.NEXT_PUBLIC_CLAIM_API ?? 'http://localhost:8080';
@@ -79,7 +79,16 @@ export const api = {
   },
 
   // reviews (adjuster)
-  reviews: () => call<Claim[]>(CLAIM_BASE, '/api/v1/reviews'),
+  reviews: (options: { scope?: ReviewScope; severity?: Severity | ''; escalatedOnly?: boolean; page?: number; size?: number } = {}) => {
+    const params = new URLSearchParams();
+    if (options.scope) params.set('scope', options.scope);
+    if (options.severity) params.set('severity', options.severity);
+    if (options.escalatedOnly) params.set('escalatedOnly', 'true');
+    params.set('page', String(options.page ?? 0));
+    params.set('size', String(options.size ?? 20));
+    return call<Page<Claim>>(CLAIM_BASE, `/api/v1/reviews?${params.toString()}`);
+  },
+  reviewSummary: () => call<ReviewQueueSummary>(CLAIM_BASE, '/api/v1/reviews/summary'),
   claimReview: (id: string) => call<Claim>(CLAIM_BASE, `/api/v1/reviews/${id}/claim`, { method: 'POST' }),
   unclaimReview: (id: string) => call<Claim>(CLAIM_BASE, `/api/v1/reviews/${id}/unclaim`, { method: 'POST' }),
   approve: (id: string, approvedAmount: number) => call<Claim>(CLAIM_BASE, `/api/v1/reviews/${id}/approve`, json('POST', { approvedAmount })),

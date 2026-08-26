@@ -157,9 +157,10 @@ class ClaimControllerIT extends AbstractIntegrationTest {
                 .getContentAsString());
 
         // assessment-service (fake) reacts to CLAIM_SUBMITTED; the claim shows up in the review queue
-        await().atMost(Duration.ofSeconds(20)).untilAsserted(() -> mockMvc.perform(
-                        get("/api/v1/reviews").header("Authorization", adjuster()))
-                .andExpect(jsonPath("$[?(@.id == '" + id + "')].severity").value("MODERATE")));
+        await().atMost(Duration.ofSeconds(20))
+                .untilAsserted(() -> mockMvc.perform(get("/api/v1/reviews").header("Authorization", adjuster()))
+                        .andExpect(jsonPath("$.content[?(@.id == '" + id + "')].severity")
+                                .value("MODERATE")));
         mockMvc.perform(get("/api/v1/claims")
                         .header("Authorization", adjuster())
                         .param("status", "PENDING_REVIEW"))

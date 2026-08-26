@@ -33,7 +33,9 @@ export interface Claim {
   updatedAt: string;
 }
 
-export interface Page<T> { content: T[]; totalElements: number; }
+export interface Page<T> { content: T[]; totalElements: number; totalPages: number; number: number; size: number; }
+export type ReviewScope = 'ALL' | 'UNASSIGNED' | 'MINE';
+export interface ReviewQueueSummary { open: number; unassigned: number; mine: number; escalated: number; severe: number; }
 
 export interface SubmitClaimRequest {
   policyNumber: string; plateNumber: string; incidentDate: string; description: string; estimatedAmount: number | null;

@@ -5,12 +5,15 @@ import { useCallback, useEffect, useState } from 'react';
 import { api } from '../api';
 import { RequireRole, useAuth } from '../auth';
 import { Shell } from '../components/Shell';
-import { Alert, Photos, SeverityBadge, formatDateTime, formatMoney, useErrorState } from '../components/ui';
-import type { Claim } from '../types';
+import { Alert, Photos, SeverityBadge, Stat, formatDateTime, formatMoney, useErrorState } from '../components/ui';
+import type { Claim, Page, ReviewQueueSummary, ReviewScope, Severity } from '../types';
+
+const PAGE_SIZE = 20;
 
 function ReviewRow({ claim, onChange, onError }: { claim: Claim; onChange: () => Promise<void>; onError: (error: unknown) => void }) {
   const { session, has } = useAuth();
-  const mine = claim.reviewAssignee === session?.user.username || has('ADMIN');
+  const mine = claim.reviewAssignee === session?.user.username;
+  const canDecide = mine || has('ADMIN');
   const [amount, setAmount] = useState<string>(claim.estimatedAmount?.toString() ?? '');
   const [reason, setReason] = useState('');
   const run = (action: () => Promise<unknown>) => action().then(onChange).catch(onError);
@@ -22,10 +25,10 @@ function ReviewRow({ claim, onChange, onError }: { claim: Claim; onChange: () =>
       <td><SeverityBadge severity={claim.severity} /><div className="muted small">szac. {formatMoney(claim.estimatedAmount)}</div>
         {claim.assessmentExplanation && <div className="faint small" title={claim.assessmentExplanation}>{claim.assessmentExplanation.split(', ').slice(0, 3).join(' · ')}</div>}</td>
       <td className="nowrap"><span className={overdue ? 'badge bad' : ''}>{formatDateTime(claim.reviewDueAt)}</span>{claim.escalated && <div className="badge bad">eskalacja</div>}</td>
-      <td>{claim.reviewAssignee ?? <span className="faint">nieprzypisana</span>}</td>
+      <td>{claim.reviewAssignee ? (mine ? <span className="badge info">ja</span> : claim.reviewAssignee) : <span className="faint">nieprzypisana</span>}</td>
       <td>
         {!claim.reviewAssignee && <button className="btn sm primary" onClick={() => run(() => api.claimReview(claim.id))}>Przejmij</button>}
-        {claim.reviewAssignee && mine && (
+        {claim.reviewAssignee && canDecide && (
           <div className="actions">
             <input className="inline-input" type="number" min="0.01" step="0.01" value={amount} onChange={(event) => setAmount(event.target.value)} />
             <button className="btn sm primary" onClick={() => run(() => api.approve(claim.id, Number(amount)))}>Zatwierdź</button>
@@ -35,36 +38,67 @@ function ReviewRow({ claim, onChange, onError }: { claim: Claim; onChange: () =>
             <button className="btn sm" onClick={() => run(() => api.withdraw(claim.id))}>Wycofaj</button>
           </div>
         )}
-        {claim.reviewAssignee && !mine && <span className="muted small">prowadzi {claim.reviewAssignee}</span>}
+        {claim.reviewAssignee && !canDecide && <span className="muted small">prowadzi {claim.reviewAssignee}</span>}
       </td>
     </tr>
   );
 }
 
 export default function Reviews() {
-  const [reviews, setReviews] = useState<Claim[]>([]);
+  const [page, setPage] = useState<Page<Claim> | null>(null);
+  const [summary, setSummary] = useState<ReviewQueueSummary | null>(null);
+  const [scope, setScope] = useState<ReviewScope>('UNASSIGNED');
+  const [severity, setSeverity] = useState<Severity | ''>('');
+  const [escalatedOnly, setEscalatedOnly] = useState(false);
+  const [pageNumber, setPageNumber] = useState(0);
   const [error, setError, clearError] = useErrorState();
-  const refresh = useCallback(async () => { try { setReviews(await api.reviews()); clearError(); } catch (candidate) { setError(candidate); } }, [setError, clearError]);
-  useEffect(() => { void refresh(); const timer = setInterval(() => void refresh(), 5000); return () => clearInterval(timer); }, [refresh]);
-  const escalated = reviews.filter((claim) => claim.escalated).length;
-  const severe = reviews.filter((claim) => claim.severity === 'SEVERE').length;
+
+  const refresh = useCallback(async () => {
+    try {
+      const [nextPage, nextSummary] = await Promise.all([api.reviews({ scope, severity, escalatedOnly, page: pageNumber, size: PAGE_SIZE }), api.reviewSummary()]);
+      setPage(nextPage); setSummary(nextSummary); clearError();
+    } catch (candidate) { setError(candidate); }
+  }, [scope, severity, escalatedOnly, pageNumber, setError, clearError]);
+  useEffect(() => { void refresh(); const timer = setInterval(() => void refresh(), 10000); return () => clearInterval(timer); }, [refresh]);
+  useEffect(() => { setPageNumber(0); }, [scope, severity, escalatedOnly]);
+
+  const totalPages = page?.totalPages ?? 0;
   return (
     <RequireRole roles={['ADJUSTER', 'ADMIN']}>
-      <Shell title="Kolejka ocen" subtitle="Szkody po ocenie automatycznej, czekające na decyzję likwidatora">
-        <div className="grid cols-3" style={{ marginBottom: '1rem' }}>
-          <div className="card stat"><div className="label">Otwarte</div><div className="value">{reviews.length}</div></div>
-          <div className="card stat"><div className="label">Po terminie SLA</div><div className="value">{escalated}</div></div>
-          <div className="card stat"><div className="label">Poważne (SEVERE)</div><div className="value">{severe}</div></div>
+      <Shell title="Kolejka ocen" subtitle="Szkody po ocenie automatycznej, czekające na decyzję likwidatora — najstarszy termin SLA pierwszy">
+        <div className="grid cols-4" style={{ marginBottom: '1rem' }}>
+          <Stat label="Otwarte" value={summary?.open ?? '—'} hint={`${summary?.unassigned ?? '—'} nieprzypisanych`} />
+          <Stat label="Moje sprawy" value={summary?.mine ?? '—'} />
+          <Stat label="Po terminie SLA" value={summary?.escalated ?? '—'} />
+          <Stat label="Poważne (SEVERE)" value={summary?.severe ?? '—'} />
+        </div>
+        <div className="card toolbar">
+          <div className="field">Zakres
+            <div className="actions">
+              {([['UNASSIGNED', 'Do wzięcia'], ['MINE', 'Moje'], ['ALL', 'Wszystkie']] as [ReviewScope, string][]).map(([value, label]) => (
+                <button key={value} className={`btn sm ${scope === value ? 'primary' : ''}`} onClick={() => setScope(value)}>{label}</button>))}
+            </div>
+          </div>
+          <label className="field">Powaga<select value={severity} onChange={(event) => setSeverity(event.target.value as Severity | '')}><option value="">dowolna</option><option value="MINOR">MINOR</option><option value="MODERATE">MODERATE</option><option value="SEVERE">SEVERE</option></select></label>
+          <label className="field">&nbsp;<span className="actions"><input type="checkbox" checked={escalatedOnly} onChange={(event) => setEscalatedOnly(event.target.checked)} /> tylko po SLA</span></label>
+          <span className="muted small" style={{ marginLeft: 'auto' }}>{page ? `${page.totalElements} spraw · strona ${page.number + 1} z ${Math.max(totalPages, 1)}` : ''}</span>
         </div>
         {error && <Alert kind="error">{error}</Alert>}
         <div className="card table-wrap">
           <table>
             <thead><tr><th>Szkoda</th><th>Opis</th><th>Ocena ML</th><th>Termin</th><th>Prowadzi</th><th>Decyzja</th></tr></thead>
             <tbody>
-              {reviews.map((claim) => <ReviewRow key={claim.id} claim={claim} onChange={refresh} onError={setError} />)}
-              {reviews.length === 0 && <tr><td colSpan={6} className="empty">Brak spraw do oceny.</td></tr>}
+              {page?.content.map((claim) => <ReviewRow key={claim.id} claim={claim} onChange={refresh} onError={setError} />)}
+              {page && page.content.length === 0 && <tr><td colSpan={6} className="empty">Brak spraw w tym widoku.</td></tr>}
             </tbody>
           </table>
+          {totalPages > 1 && (
+            <div className="actions" style={{ marginTop: '0.8rem', justifyContent: 'flex-end' }}>
+              <button className="btn sm" disabled={pageNumber === 0} onClick={() => setPageNumber(pageNumber - 1)}>‹ Poprzednia</button>
+              <span className="muted small">{pageNumber + 1} / {totalPages}</span>
+              <button className="btn sm" disabled={pageNumber + 1 >= totalPages} onClick={() => setPageNumber(pageNumber + 1)}>Następna ›</button>
+            </div>
+          )}
         </div>
       </Shell>
     </RequireRole>
