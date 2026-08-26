@@ -37,21 +37,42 @@ export function Alert({ kind, children }: { kind: 'error' | 'ok' | 'info'; child
   return <div className={`alert ${kind}`}>{children}</div>;
 }
 
-/** Photos sit behind bearer auth, so they are fetched with the token and rendered from object URLs. */
+/**
+ * Photos sit behind bearer auth, so they are fetched with the token and rendered from object URLs.
+ * Object URLs are cached per photo for the lifetime of the page: lists re-render every few seconds
+ * with fresh claim objects, and re-fetching (and revoking the previous blob) on every render made the
+ * <img> point at a dead blob: URL for a moment — hence the flicker and ERR_FILE_NOT_FOUND.
+ */
+const photoUrlCache = new Map<string, Promise<string>>();
+
+export function photoObjectUrl(claimId: string, photoId: string): Promise<string> {
+  const key = `${claimId}/${photoId}`;
+  let pending = photoUrlCache.get(key);
+  if (!pending) {
+    pending = api.photoBlob(claimId, photoId).catch((error: unknown) => {
+      photoUrlCache.delete(key); // let a later render retry after a transient failure
+      throw error;
+    });
+    photoUrlCache.set(key, pending);
+  }
+  return pending;
+}
+
 export function Photos({ claim, large }: { claim: Claim; large?: boolean }) {
   const [urls, setUrls] = useState<string[]>([]);
+  const photoKey = claim.photoIds.join(','); // stable across re-renders with equal content
   useEffect(() => {
     let alive = true;
-    let created: string[] = [];
-    Promise.all(claim.photoIds.map((photoId) => api.photoBlob(claim.id, photoId)))
-      .then((result) => { created = result; if (alive) setUrls(result); })
+    if (!photoKey) { setUrls([]); return; }
+    Promise.all(photoKey.split(',').map((photoId) => photoObjectUrl(claim.id, photoId)))
+      .then((resolved) => { if (alive) setUrls(resolved); })
       .catch(() => {});
-    return () => { alive = false; created.forEach((url) => URL.revokeObjectURL(url)); };
-  }, [claim.id, claim.photoIds]);
+    return () => { alive = false; }; // cached URLs stay valid; nothing to revoke here
+  }, [claim.id, photoKey]);
   if (claim.photoIds.length === 0) return <span className="faint small">brak zdjęć</span>;
   return (
     <div className={`photos ${large ? 'large' : ''}`}>
-      {urls.map((url, index) => <a key={index} href={url} target="_blank" rel="noreferrer"><img src={url} alt="uszkodzenie" /></a>)}
+      {urls.map((url, index) => <a key={url} href={url} target="_blank" rel="noreferrer"><img src={url} alt={`uszkodzenie ${index + 1}`} /></a>)}
     </div>
   );
 }
