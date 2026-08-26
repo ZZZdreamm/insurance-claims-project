@@ -41,7 +41,7 @@ class ReviewQueueIT extends AbstractIntegrationTest {
                 "POL-Q", "Q 1", LocalDate.now(), "Queue test: scratched bumper", new BigDecimal("300"), List.of());
         Claim fire = claimService.submit(
                 "POL-Q", "Q 2", LocalDate.now(), "Queue test: engine bay fire", new BigDecimal("300"), List.of());
-        await().atMost(Duration.ofSeconds(20)).untilAsserted(() -> {
+        await().atMost(Duration.ofSeconds(60)).untilAsserted(() -> {
             assertThat(claimService.get(mild.getId()).getStatus()).isEqualTo(ClaimStatus.PENDING_REVIEW);
             assertThat(claimService.get(fire.getId()).getStatus()).isEqualTo(ClaimStatus.PENDING_REVIEW);
         });

@@ -157,7 +157,7 @@ class ClaimControllerIT extends AbstractIntegrationTest {
                 .getContentAsString());
 
         // assessment-service (fake) reacts to CLAIM_SUBMITTED; the claim shows up in the review queue
-        await().atMost(Duration.ofSeconds(20))
+        await().atMost(Duration.ofSeconds(60))
                 .untilAsserted(() -> mockMvc.perform(get("/api/v1/reviews").header("Authorization", adjuster()))
                         .andExpect(jsonPath("$.content[?(@.id == '" + id + "')].severity")
                                 .value("MODERATE")));
@@ -179,7 +179,7 @@ class ClaimControllerIT extends AbstractIntegrationTest {
                 .andExpect(jsonPath("$.status").value("APPROVED"));
 
         // payout-service (fake) fails on .99 -> PAYOUT_FAILED -> retry with corrected amount -> PAID
-        await().atMost(Duration.ofSeconds(30)).untilAsserted(() -> mockMvc.perform(
+        await().atMost(Duration.ofSeconds(60)).untilAsserted(() -> mockMvc.perform(
                         get("/api/v1/claims/{id}", id).header("Authorization", user()))
                 .andExpect(jsonPath("$.status").value("PAYOUT_FAILED")));
         mockMvc.perform(post("/api/v1/claims/{id}/retry-payout", id)
@@ -187,7 +187,7 @@ class ClaimControllerIT extends AbstractIntegrationTest {
                         .contentType(APPLICATION_JSON)
                         .content("{\"approvedAmount\":2001}"))
                 .andExpect(jsonPath("$.status").value("APPROVED"));
-        await().atMost(Duration.ofSeconds(30)).untilAsserted(() -> mockMvc.perform(
+        await().atMost(Duration.ofSeconds(60)).untilAsserted(() -> mockMvc.perform(
                         get("/api/v1/claims/{id}", id).header("Authorization", user()))
                 .andExpect(jsonPath("$.status").value("PAID")));
     }

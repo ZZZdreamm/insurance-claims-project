@@ -3,9 +3,10 @@ package com.kmultan.claims.infrastructure.consumers;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.concurrent.atomic.AtomicReference;
 
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.springframework.beans.factory.annotation.Value;
@@ -31,12 +32,14 @@ public class FakeDownstreamServices {
     private static final BigDecimal RESERVE_LIMIT = new BigDecimal("50000");
     private static final BigDecimal PROVIDER_REJECTS_CENTS = new BigDecimal("0.99");
 
+    /**
+     * Several Spring test contexts may be cached in one JVM, each with its own fake. Every fake records
+     * what it sees, but only one answers a given event: the first to claim its id. This survives the
+     * context that answered first being closed, unlike electing a single responder instance.
+     */
+    private static final Set<String> ANSWERED_EVENT_IDS = ConcurrentHashMap.newKeySet();
+
     public final List<JsonNode> claimEvents = new CopyOnWriteArrayList<>();
-
-    /** Several Spring test contexts may be cached in one JVM; only the first fake answers, the others just record. */
-    private static final AtomicReference<FakeDownstreamServices> RESPONDER = new AtomicReference<>();
-
-    private final boolean responder;
 
     private final KafkaTemplate<String, String> kafkaTemplate;
     private final ObjectMapper objectMapper;
@@ -52,14 +55,13 @@ public class FakeDownstreamServices {
         this.objectMapper = objectMapper;
         this.assessmentTopic = assessmentTopic;
         this.payoutTopic = payoutTopic;
-        this.responder = RESPONDER.compareAndSet(null, this);
     }
 
     @KafkaListener(topics = "${claims.topics.claims}", groupId = "fake-downstream-#{T(java.util.UUID).randomUUID()}")
     public void onClaimEvent(ConsumerRecord<String, String> consumerRecord) throws Exception {
         JsonNode event = objectMapper.readTree(consumerRecord.value());
         claimEvents.add(event);
-        if (!responder) {
+        if (!ANSWERED_EVENT_IDS.add(event.get("eventId").asText())) {
             return;
         }
         String eventType = event.get("eventType").asText();
