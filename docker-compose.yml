@@ -300,7 +300,7 @@ services:
       - ./infra/observability/tempo.yml:/etc/tempo/tempo.yml:ro
       - tempo-data:/var/tempo
     ports:
-      - "4318:4318"
+      - "14318:4318"   # host port for OTLP from processes outside Docker; 4318 itself is in Windows' reserved range
     deploy:
       resources:
         limits:

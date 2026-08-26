@@ -65,6 +65,11 @@ docker compose --profile ci up -d --build
 cp .env.example .env && docker compose --profile core --profile observability up -d --build
 ```
 
+The admin panel's *Operacje* tab shows whether Grafana, Kibana and Jenkins are reachable and which
+Compose profile starts each one — the links only work for profiles that are up. On Windows/WSL the
+host port 4318 sits in a reserved range, so Tempo's OTLP port is published as `14318`; containers keep
+talking to `tempo:4318` internally.
+
 Open Grafana → *Claims platform* dashboard for submissions, status transitions, outbox lag,
 p95 latencies. Explore → Tempo → search `service.name = claim-service` and open a trace: the HTTP
 submit, the outbox relay, the search-service and payout-service consumers and the assessment

@@ -5,6 +5,7 @@ import { Bar, BarChart, CartesianGrid, Cell, Legend, Pie, PieChart, ResponsiveCo
 import { api } from '../api';
 import { RequireRole, useAuth } from '../auth';
 import { Shell } from '../components/Shell';
+import { ToolLinks } from '../components/ToolLinks';
 import { Alert, Stat, formatBytes, formatDuration, formatMoney, useErrorState } from '../components/ui';
 import { ALL_ROLES, type Role, type Statistics, type Usage, type UserAccount } from '../types';
 
@@ -156,7 +157,7 @@ export default function Admin() {
         {tab === 'dashboard' && (statistics ? <Dashboard statistics={statistics} /> : <p className="muted">Ładowanie…</p>)}
         {tab === 'usage' && (usage ? <UsagePanel usage={usage} /> : <p className="muted">Ładowanie…</p>)}
         {tab === 'users' && <UsersPanel onError={setError} />}
-        {tab === 'operations' && <OperationsPanel onError={setError} />}
+        {tab === 'operations' && <><ToolLinks /><div style={{ height: '1rem' }} /><OperationsPanel onError={setError} /></>}
       </Shell>
     </RequireRole>
   );
