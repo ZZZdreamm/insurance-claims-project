@@ -57,6 +57,8 @@ services:
     replicas: 1
     env:
       NEXT_PUBLIC_CLAIM_API: http://localhost:8080   # browser-side; port-forward claim-service to 8080
+      NEXT_PUBLIC_SEARCH_API: http://localhost:8081  # port-forward search-service to 8081
+      NEXT_PUBLIC_PAYOUT_API: http://localhost:8082  # port-forward payout-service to 8082
     resources: { requests: { cpu: 50m, memory: 64Mi }, limits: { memory: 128Mi } }
     health: /
 

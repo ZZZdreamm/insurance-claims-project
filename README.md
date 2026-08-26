@@ -70,6 +70,15 @@ p95 latencies. Explore → Tempo → search `service.name = claim-service` and o
 submit, the outbox relay, the search-service and payout-service consumers and the assessment
 call are one trace. Loki log lines carry `traceId=`, which Grafana turns into a link to the trace.
 
+### The console, role by role
+
+`http://localhost:3000` (password = username): **anna** submits with photos and follows her claims;
+**alice** works the review queue and sees why the model chose a severity; **finance** retries failed
+payouts and reads the payout ledger; **admin** gets the dashboard (submissions per day, status and
+severity charts, paid totals, time-to-assessment), live usage (requests per endpoint, CPU, heap, outbox,
+busiest clients), account management and dead-letter replay. Every claim has a detail page with its
+event timeline (from search-service), photos, the ML reasoning and — for finance — the ledger entry.
+
 ### Kubernetes (kind)
 
 ```bash
@@ -156,6 +165,21 @@ Anonymous → `401`, wrong role or someone else's claim → `403`, both as `appl
 
 Illegal transitions return `409` as RFC 9457 `application/problem+json`.
 Health and metrics: `/actuator/health`, `/actuator/prometheus`.
+
+Staff and admin endpoints:
+
+| Endpoint | Who | What |
+|---|---|---|
+| `GET search-service/api/v1/search?q=&status=` | staff | fuzzy search over the Elasticsearch projection |
+| `GET search-service/api/v1/claims/{id}/events` | staff | the claim's event timeline from the `claim-events` log |
+| `GET payout-service/api/v1/payouts`, `/{claimId}` | FINANCE, ADMIN | the money ledger: reservations, transfers, references, reasons |
+| `POST payout-service/api/v1/dlq/replay?topic=` | FINANCE, ADMIN | re-drive a dead-letter topic |
+| `GET /api/v1/admin/statistics?days=` | ADMIN | claims by status/severity, submissions per day, SLA, paid totals, time-to-assessment/payment |
+| `GET /api/v1/admin/usage` | ADMIN | live meter registry: HTTP per endpoint, CPU, heap, outbox, transitions, busiest clients |
+| `GET/POST/PATCH /api/v1/admin/users` | ADMIN | accounts: create, roles, enable/disable, password; admins cannot lock themselves out |
+
+The ML verdict is persisted with its reasoning (`assessmentScore`, `assessmentExplanation`), and a paid
+claim carries `paidAt` and the payment `payoutReference` from payout-service.
 
 Search the projection (fuzzy on plate, policy, claim number and description; optional status filter):
 
@@ -336,7 +360,9 @@ payout-service/         Spring Boot 3 — saga participant: PayoutSaga (one tran
 search-service/         Spring Boot 3 — ClaimEventListener -> ClaimDocumentIndexer (claims) + ClaimEventLogIndexer
                         (claim-events), ClaimSearchService, SearchController, SearchIndexInitializer
 assessment-service/     FastAPI + Kafka consumer — MobileNetV2 (ONNX) + text model; service-account login for photos
-adjuster-console/       Next.js 14 + TypeScript — login, then per role: /claims, /reviews, /finance
+adjuster-console/       Next.js 14 + TypeScript + Recharts — login, sidebar per role: /claims (submit, own claims), /claims/[id]
+                        (photos, ML reasoning, timeline, ledger), /reviews, /search, /finance (failed payouts, ledger, paid),
+                        /admin (dashboard charts, usage, users, operations/DLQ, links to Grafana/Kibana/Jenkins)
 contracts/pacts/        Pact message contract payout-service ⇄ claim-service (consumer-written, provider-verified)
 infra/                  postgres init, kibana data views, jenkins image + JCasC, observability configs
 deploy/helm/            claims-platform chart; deploy/kind/up.sh

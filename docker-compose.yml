@@ -247,8 +247,13 @@ services:
     container_name: adjuster-console
     profiles: ["console"]
     environment:
-      # the browser calls claim-service directly, so this must be reachable from the host
+      # the browser calls the services directly, so these must be reachable from the host
       NEXT_PUBLIC_CLAIM_API: http://localhost:8080
+      NEXT_PUBLIC_SEARCH_API: http://localhost:8081
+      NEXT_PUBLIC_PAYOUT_API: http://localhost:8082
+      NEXT_PUBLIC_GRAFANA_URL: http://localhost:3001
+      NEXT_PUBLIC_KIBANA_URL: http://localhost:5601
+      NEXT_PUBLIC_JENKINS_URL: http://localhost:8090
     ports:
       - "3000:3000"
     deploy:
