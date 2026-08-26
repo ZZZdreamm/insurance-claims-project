@@ -76,4 +76,8 @@ public class FundReservation {
     public Status getStatus() {
         return status;
     }
+
+    public Instant getUpdatedAt() {
+        return updatedAt;
+    }
 }

@@ -10,9 +10,11 @@ import org.springframework.security.web.SecurityFilterChain;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.kmultan.platform.security.ResourceServerSecurityConfiguration;
 
-/** Only the dead-letter replay is exposed, and only to finance/admin. */
+/** The ledger and the dead-letter replay are finance/admin tools. */
 @Configuration
 public class SecurityConfiguration {
+
+    private static final String[] FINANCE_ENDPOINTS = {"/api/v1/dlq/**", "/api/v1/payouts/**"};
 
     @Bean
     public SecurityFilterChain payoutApi(
@@ -23,7 +25,7 @@ public class SecurityConfiguration {
             throws Exception {
         return ResourceServerSecurityConfiguration.statelessBearerApi(
                 http, jwtDecoder, jwtAuthenticationConverter, objectMapper, rules -> rules.requestMatchers(
-                                "/api/v1/dlq/**")
+                                FINANCE_ENDPOINTS)
                         .hasAnyRole("FINANCE", "ADMIN"));
     }
 }

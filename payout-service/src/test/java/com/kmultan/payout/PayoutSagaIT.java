@@ -2,6 +2,7 @@ package com.kmultan.payout;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -129,6 +130,24 @@ class PayoutSagaIT {
         assertThat(eventAt(claimId, 1).get("reference").asText()).startsWith("PAY-");
         assertThat(reservations.findById(claimId).orElseThrow().getStatus()).isEqualTo(FundReservation.Status.SETTLED);
         assertThat(payouts.findById(claimId).orElseThrow().getStatus()).isEqualTo(Payout.Status.ISSUED);
+
+        // the ledger is visible to finance, not to adjusters
+        mockMvc.perform(get("/api/v1/payouts/{claimId}", claimId)
+                        .header("Authorization", TOKENS.bearer("finance", "FINANCE")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.payoutStatus").value("ISSUED"))
+                .andExpect(jsonPath("$.reservationStatus").value("SETTLED"))
+                .andExpect(jsonPath("$.reference").value(org.hamcrest.Matchers.startsWith("PAY-")));
+        mockMvc.perform(get("/api/v1/payouts").header("Authorization", TOKENS.bearer("finance", "FINANCE")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.payoutsIssued").value(org.hamcrest.Matchers.greaterThanOrEqualTo(1)))
+                .andExpect(
+                        jsonPath("$.entries[?(@.claimId == '" + claimId + "')]").exists());
+        mockMvc.perform(get("/api/v1/payouts").header("Authorization", TOKENS.bearer("alice", "ADJUSTER")))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(get("/api/v1/payouts/{claimId}", UUID.randomUUID())
+                        .header("Authorization", TOKENS.bearer("finance", "FINANCE")))
+                .andExpect(status().isNotFound());
     }
 
     @Test

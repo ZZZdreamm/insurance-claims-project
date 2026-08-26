@@ -96,4 +96,8 @@ public class Payout {
     public String getReason() {
         return reason;
     }
+
+    public Instant getUpdatedAt() {
+        return updatedAt;
+    }
 }
