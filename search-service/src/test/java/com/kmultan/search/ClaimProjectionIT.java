@@ -123,6 +123,18 @@ class ClaimProjectionIT {
                 .count();
         assertThat(logged).isEqualTo(3);
 
+        // the timeline lists every fact for the claim in sequence order
+        mockMvc.perform(get("/api/v1/claims/{id}/events", id)
+                        .header("Authorization", TOKENS.bearer("alice", "ADJUSTER")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(3))
+                .andExpect(jsonPath("$[0].eventType").value("CLAIM_SUBMITTED"))
+                .andExpect(jsonPath("$[2].eventType").value("ASSESSMENT_STARTED")) // seq 10, 10 (replay), 11
+                .andExpect(jsonPath("$[0].sequence").value(10));
+        mockMvc.perform(get("/api/v1/claims/{id}/events", id)
+                        .header("Authorization", TOKENS.bearer("anna", "POLICYHOLDER")))
+                .andExpect(status().isForbidden());
+
         mockMvc.perform(get("/api/v1/search").param("q", "parking")).andExpect(status().isUnauthorized());
         mockMvc.perform(get("/api/v1/search")
                         .param("q", "parking")

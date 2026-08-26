@@ -10,9 +10,11 @@ import org.springframework.security.web.SecurityFilterChain;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.kmultan.platform.security.ResourceServerSecurityConfiguration;
 
-/** Search is a staff tool: adjusters, finance and admins. */
+/** Search and claim timelines are staff tools: adjusters, finance and admins. */
 @Configuration
 public class SecurityConfiguration {
+
+    private static final String[] STAFF_ENDPOINTS = {"/api/v1/search/**", "/api/v1/claims/*/events"};
 
     @Bean
     public SecurityFilterChain searchApi(
@@ -23,7 +25,7 @@ public class SecurityConfiguration {
             throws Exception {
         return ResourceServerSecurityConfiguration.statelessBearerApi(
                 http, jwtDecoder, jwtAuthenticationConverter, objectMapper, rules -> rules.requestMatchers(
-                                "/api/v1/search/**")
+                                STAFF_ENDPOINTS)
                         .hasAnyRole("ADJUSTER", "FINANCE", "ADMIN"));
     }
 }
