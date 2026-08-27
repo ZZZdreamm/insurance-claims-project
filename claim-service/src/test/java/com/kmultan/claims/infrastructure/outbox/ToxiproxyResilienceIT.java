@@ -92,34 +92,94 @@ class ToxiproxyResilienceIT {
             ToxiproxyClient toxiproxyClient = new ToxiproxyClient(TOXIPROXY.getHost(), TOXIPROXY.getControlPort());
             Proxy proxy = toxiproxyClient.createProxy(
                     "kafka", "0.0.0.0:" + TOXIPROXY_FIRST_PORT, "kafka:" + KAFKA_PROXY_LISTENER_PORT);
-            try {
-                awaitBrokerReachableThroughProxy(Duration.ofSeconds(30));
-                return proxy;
-            } catch (org.awaitility.core.ConditionTimeoutException firstAttemptFailed) {
-                proxy.delete();
-                proxy = toxiproxyClient.createProxy(
-                        "kafka", "0.0.0.0:" + TOXIPROXY_FIRST_PORT, "kafka:" + KAFKA_PROXY_LISTENER_PORT);
-                awaitBrokerReachableThroughProxy(Duration.ofSeconds(60));
+            if (brokerReachableThroughProxy(Duration.ofSeconds(30))) {
                 return proxy;
             }
+            proxy.delete();
+            proxy = toxiproxyClient.createProxy(
+                    "kafka", "0.0.0.0:" + TOXIPROXY_FIRST_PORT, "kafka:" + KAFKA_PROXY_LISTENER_PORT);
+            if (!brokerReachableThroughProxy(Duration.ofSeconds(60))) {
+                throw new IllegalStateException(diagnoseProxiedPath());
+            }
+            return proxy;
         } catch (IOException exception) {
             throw new IllegalStateException("Cannot create the Kafka proxy", exception);
         }
     }
 
-    private static void awaitBrokerReachableThroughProxy(Duration timeout) {
+    /** Which leg is broken: the broker itself, the TCP hop to the proxy, or the proxy's upstream dial. */
+    private static String diagnoseProxiedPath() {
+        StringBuilder report = new StringBuilder("Kafka is unreachable through Toxiproxy.\n");
+        java.util.Properties directProperties = new java.util.Properties();
+        directProperties.put(
+                org.apache.kafka.clients.admin.AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG, KAFKA.getBootstrapServers());
+        directProperties.put(org.apache.kafka.clients.admin.AdminClientConfig.REQUEST_TIMEOUT_MS_CONFIG, 5000);
+        try (org.apache.kafka.clients.admin.Admin admin =
+                org.apache.kafka.clients.admin.Admin.create(directProperties)) {
+            report.append("Direct broker probe (")
+                    .append(KAFKA.getBootstrapServers())
+                    .append("): nodes=")
+                    .append(admin.describeCluster().nodes().get(10, java.util.concurrent.TimeUnit.SECONDS))
+                    .append('\n');
+        } catch (Exception directProbeFailure) {
+            report.append("Direct broker probe FAILED: ")
+                    .append(directProbeFailure)
+                    .append('\n');
+        }
+        try (java.net.Socket socket = new java.net.Socket()) {
+            socket.connect(
+                    new java.net.InetSocketAddress(TOXIPROXY.getHost(), TOXIPROXY.getMappedPort(TOXIPROXY_FIRST_PORT)),
+                    3000);
+            report.append("Raw TCP connect to the proxy port: OK\n");
+        } catch (IOException tcpFailure) {
+            report.append("Raw TCP connect to the proxy port FAILED: ")
+                    .append(tcpFailure)
+                    .append('\n');
+        }
+        report.append("--- toxiproxy logs ---\n").append(tail(TOXIPROXY.getLogs(), 40));
+        report.append("--- kafka logs ---\n").append(tail(KAFKA.getLogs(), 60));
+        return report.toString();
+    }
+
+    private static String tail(String logs, int lines) {
+        List<String> allLines = logs.lines().toList();
+        return String.join("\n", allLines.subList(Math.max(0, allLines.size() - lines), allLines.size())) + "\n";
+    }
+
+    /**
+     * Plain retry loop on the calling thread. This runs inside the class's static initialiser, so
+     * awaitility must NOT be used here: its condition thread would invoke a lambda belonging to this
+     * class, block on the class-initialisation lock held by the thread running this very code, and
+     * the condition would never evaluate — a guaranteed deadlock dressed up as a timeout.
+     */
+    private static boolean brokerReachableThroughProxy(Duration timeout) {
         String proxiedBootstrap = TOXIPROXY.getHost() + ":" + TOXIPROXY.getMappedPort(TOXIPROXY_FIRST_PORT);
         java.util.Properties adminProperties = new java.util.Properties();
         adminProperties.put(
                 org.apache.kafka.clients.admin.AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG, proxiedBootstrap);
         adminProperties.put(org.apache.kafka.clients.admin.AdminClientConfig.REQUEST_TIMEOUT_MS_CONFIG, 5000);
+        long deadline = System.nanoTime() + timeout.toNanos();
         try (org.apache.kafka.clients.admin.Admin admin =
                 org.apache.kafka.clients.admin.Admin.create(adminProperties)) {
-            await().atMost(timeout).ignoreExceptions().until(() -> !admin.describeCluster()
-                    .nodes()
-                    .get(5, java.util.concurrent.TimeUnit.SECONDS)
-                    .isEmpty());
+            while (System.nanoTime() < deadline) {
+                try {
+                    if (!admin.describeCluster()
+                            .nodes()
+                            .get(5, java.util.concurrent.TimeUnit.SECONDS)
+                            .isEmpty()) {
+                        return true;
+                    }
+                } catch (Exception notReachableYet) {
+                    try {
+                        Thread.sleep(500);
+                    } catch (InterruptedException interrupted) {
+                        Thread.currentThread().interrupt();
+                        return false;
+                    }
+                }
+            }
         }
+        return false;
     }
 
     @DynamicPropertySource
