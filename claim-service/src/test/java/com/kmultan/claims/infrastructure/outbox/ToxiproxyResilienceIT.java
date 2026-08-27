@@ -57,12 +57,17 @@ class ToxiproxyResilienceIT {
             .withNetwork(NETWORK)
             .withNetworkAliases("toxiproxy");
 
-    /** The broker advertises the proxy's address for its extra listener, so every client hop goes through Toxiproxy. */
+    /**
+     * The broker advertises the proxy's address for its extra listener, so every client hop goes
+     * through Toxiproxy. The listener's host part MUST be the broker's own alias: Testcontainers
+     * binds the listener to that host and adds it as a network alias of the Kafka container, so a
+     * foreign name here (e.g. "toxiproxy") collides with the proxy's alias in Docker DNS and the
+     * broker randomly binds the wrong IP — the listener then never comes up.
+     */
     static final KafkaContainer KAFKA = new KafkaContainer("apache/kafka-native:3.8.0")
             .withNetwork(NETWORK)
-            .withNetworkAliases("kafka")
             .withListener(
-                    "toxiproxy:" + KAFKA_PROXY_LISTENER_PORT,
+                    "kafka:" + KAFKA_PROXY_LISTENER_PORT,
                     () -> TOXIPROXY.getHost() + ":" + TOXIPROXY.getMappedPort(TOXIPROXY_FIRST_PORT));
 
     static final Proxy KAFKA_PROXY;
