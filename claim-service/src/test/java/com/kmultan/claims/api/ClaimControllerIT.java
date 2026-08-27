@@ -156,14 +156,17 @@ class ClaimControllerIT extends AbstractIntegrationTest {
                 .getResponse()
                 .getContentAsString());
 
-        // assessment-service (fake) reacts to CLAIM_SUBMITTED; the claim shows up in the review queue
-        await().atMost(Duration.ofSeconds(90))
-                .untilAsserted(() -> mockMvc.perform(get("/api/v1/reviews").header("Authorization", adjuster()))
-                        .andExpect(jsonPath("$.content[?(@.id == '" + id + "')].severity")
-                                .value("MODERATE")));
+        // assessment-service (fake) reacts to CLAIM_SUBMITTED; the claim shows up in the review queue.
+        // The queue is oldest-first and paged: ask for a large page, or claims accumulated by the rest
+        // of the suite in the shared database push this one off page 0 and the condition can never hold.
+        await().atMost(Duration.ofSeconds(90)).untilAsserted(() -> mockMvc.perform(
+                        get("/api/v1/reviews").param("size", "500").header("Authorization", adjuster()))
+                .andExpect(
+                        jsonPath("$.content[?(@.id == '" + id + "')].severity").value("MODERATE")));
         mockMvc.perform(get("/api/v1/claims")
                         .header("Authorization", adjuster())
-                        .param("status", "PENDING_REVIEW"))
+                        .param("status", "PENDING_REVIEW")
+                        .param("size", "500"))
                 .andExpect(jsonPath("$.content[?(@.id == '" + id + "')]").exists());
 
         mockMvc.perform(post("/api/v1/reviews/{id}/claim", id).header("Authorization", adjuster()))
