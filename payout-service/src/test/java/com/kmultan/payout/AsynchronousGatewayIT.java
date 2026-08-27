@@ -83,6 +83,21 @@ class AsynchronousGatewayIT {
         FakeGatewayController fakeGatewayController() {
             return new FakeGatewayController();
         }
+
+        /**
+         * The fake gateway lives inside payout-service's own Tomcat, and the
+         * saga calls it over real HTTP — without this chain the JWT filter
+         * answers 401 before the controller is ever reached.
+         */
+        @Bean
+        @org.springframework.core.annotation.Order(0)
+        org.springframework.security.web.SecurityFilterChain fakeGatewayChain(
+                org.springframework.security.config.annotation.web.builders.HttpSecurity http) throws Exception {
+            return http.securityMatcher("/fake-gateway/**")
+                    .csrf(csrf -> csrf.disable())
+                    .authorizeHttpRequests(rules -> rules.anyRequest().permitAll())
+                    .build();
+        }
     }
 
     /** Records what the saga sends and answers 202 ACCEPTED, like the real simulator — but never calls back on its own. */
