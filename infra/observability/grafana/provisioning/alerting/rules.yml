@@ -1,0 +1,93 @@
+apiVersion: 1
+groups:
+  - orgId: 1
+    name: claims-platform
+    folder: Claims platform
+    interval: 1m
+    rules:
+      - uid: svc-down
+        title: Service down
+        condition: C
+        for: 2m
+        labels: { severity: critical }
+        annotations:
+          summary: "A scraped service reports up == 0 — the instance is unreachable."
+          runbook: "docker compose ps; docker compose logs <service>; restart the service."
+        data:
+          - refId: A
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: prometheus
+            model: { expr: "min by (job) (up)", instant: true, refId: A }
+          - refId: C
+            datasourceUid: "__expr__"
+            model: { type: threshold, expression: A, refId: C, conditions: [{ evaluator: { type: lt, params: [1] } }] }
+      - uid: outbox-backlog
+        title: Outbox backlog growing
+        condition: C
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "outbox_pending above 100 for 5 minutes — events are written but not reaching Kafka."
+          runbook: "Check the broker (docker compose logs claims-kafka) and the service's OutboxPublisher logs; the relay drains automatically once Kafka is reachable."
+        data:
+          - refId: A
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: prometheus
+            model: { expr: "max by (job) (outbox_pending)", instant: true, refId: A }
+          - refId: C
+            datasourceUid: "__expr__"
+            model: { type: threshold, expression: A, refId: C, conditions: [{ evaluator: { type: gt, params: [100] } }] }
+      - uid: listener-errors
+        title: Kafka listener failures
+        condition: C
+        for: 2m
+        labels: { severity: warning }
+        annotations:
+          summary: "A consumer keeps throwing — records are being retried and may end up on the DLT."
+          runbook: "grep the service logs for 'Failed to handle'; after fixing the cause replay with POST payout-service/api/v1/dlq/replay?topic=..."
+        data:
+          - refId: A
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: prometheus
+            model: { expr: "sum by (job) (rate(spring_kafka_listener_seconds_count{error!=\"none\"}[5m]))", instant: true, refId: A }
+          - refId: C
+            datasourceUid: "__expr__"
+            model: { type: threshold, expression: A, refId: C, conditions: [{ evaluator: { type: gt, params: [0] } }] }
+      - uid: http-5xx
+        title: HTTP 5xx rate
+        condition: C
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "More than 5% of requests fail with 5xx."
+          runbook: "Explore -> Loki, filter app and level=ERROR; the trace id in the log line links to Tempo."
+        data:
+          - refId: A
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: prometheus
+            model:
+              expr: "sum by (job) (rate(http_server_requests_seconds_count{status=~\"5..\"}[5m])) / clamp_min(sum by (job) (rate(http_server_requests_seconds_count[5m])), 0.001)"
+              instant: true
+              refId: A
+          - refId: C
+            datasourceUid: "__expr__"
+            model: { type: threshold, expression: A, refId: C, conditions: [{ evaluator: { type: gt, params: [0.05] } }] }
+      - uid: heap-pressure
+        title: JVM heap pressure
+        condition: C
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "Heap usage above 90% of max for 10 minutes."
+          runbook: "Check admin panel Usage tab; consider raising the container memory limit or -Xmx."
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: prometheus
+            model:
+              expr: "sum by (job) (jvm_memory_used_bytes{area=\"heap\"}) / clamp_min(sum by (job) (jvm_memory_max_bytes{area=\"heap\"}), 1)"
+              instant: true
+              refId: A
+          - refId: C
+            datasourceUid: "__expr__"
+            model: { type: threshold, expression: A, refId: C, conditions: [{ evaluator: { type: gt, params: [0.9] } }] }

@@ -1,0 +1,12 @@
+apiVersion: 1
+contactPoints:
+  - orgId: 1
+    name: ops-webhook
+    receivers:
+      - uid: ops-webhook
+        type: webhook
+        settings:
+          # point at a real receiver (Slack webhook proxy, Opsgenie, ...) via GF_ env or edit here;
+          # alerts are visible and fire in the Grafana UI regardless of delivery.
+          url: http://claims-gateway:8080/actuator/health
+          httpMethod: POST
