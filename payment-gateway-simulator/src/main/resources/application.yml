@@ -1,0 +1,13 @@
+spring:
+  application:
+    name: payment-gateway-simulator
+server:
+  port: 8083
+gateway:
+  callback-delay-millis: ${GATEWAY_CALLBACK_DELAY_MILLIS:700}
+  callback-token: ${GATEWAY_CALLBACK_TOKEN:dev-gateway-token}
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info

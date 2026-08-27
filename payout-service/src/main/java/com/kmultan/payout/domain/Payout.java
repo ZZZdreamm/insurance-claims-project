@@ -55,6 +55,20 @@ public class Payout {
         return payout;
     }
 
+    /** An asynchronous provider accepted the transfer; the outcome will arrive on the webhook. */
+    public void pendingExternal(BigDecimal amount, String reference, UUID causationEventId) {
+        this.amount = amount;
+        this.reference = reference;
+        this.reason = null;
+        this.status = Status.PENDING;
+        this.causationEventId = causationEventId;
+        this.updatedAt = Instant.now();
+    }
+
+    public UUID getCausationEventId() {
+        return causationEventId;
+    }
+
     public void issued(BigDecimal amount, String reference, UUID causationEventId) {
         this.amount = amount;
         this.reference = reference;

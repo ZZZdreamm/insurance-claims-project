@@ -25,7 +25,9 @@ public class SecurityConfiguration {
             throws Exception {
         return ResourceServerSecurityConfiguration.statelessBearerApi(
                 http, jwtDecoder, jwtAuthenticationConverter, objectMapper, rules -> rules.requestMatchers(
-                                FINANCE_ENDPOINTS)
+                                "/api/v1/payments/callback")
+                        .permitAll() // shared-token auth in the controller: the gateway is not a JWT client
+                        .requestMatchers(FINANCE_ENDPOINTS)
                         .hasAnyRole("FINANCE", "ADMIN"));
     }
 }

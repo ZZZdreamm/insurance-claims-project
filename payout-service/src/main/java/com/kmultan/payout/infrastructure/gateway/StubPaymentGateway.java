@@ -5,6 +5,7 @@ import java.util.UUID;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 import com.kmultan.payout.domain.PaymentGateway;
@@ -15,6 +16,7 @@ import com.kmultan.payout.domain.PaymentGateway;
  * saga's compensation path.
  */
 @Component
+@ConditionalOnProperty(name = "payout.gateway.mode", havingValue = "sync", matchIfMissing = true)
 public class StubPaymentGateway implements PaymentGateway {
 
     private static final Logger log = LoggerFactory.getLogger(StubPaymentGateway.class);
@@ -22,11 +24,11 @@ public class StubPaymentGateway implements PaymentGateway {
     @Override
     public Result transfer(UUID claimId, String policyNumber, BigDecimal amount) {
         if (amount.remainder(BigDecimal.ONE).compareTo(new BigDecimal("0.99")) == 0) {
-            return Result.failed("Payment provider rejected the transfer");
+            return Result.rejected("Payment provider rejected the transfer");
         }
         String reference = "PAY-" + claimId.toString().substring(0, 8).toUpperCase();
         log.info("Transferred {} for claim {} ({})", amount, claimId, reference);
-        return Result.ok(reference);
+        return Result.completed(reference);
     }
 
     @Override

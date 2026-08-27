@@ -36,6 +36,12 @@ spring:
       observation-enabled: true
 
 payout:
+  gateway:
+    mode: ${PAYMENT_GATEWAY_MODE:sync}          # sync = in-process stub; async = payment-gateway-simulator + webhook
+    url: ${PAYMENT_GATEWAY_URL:http://localhost:8083}
+    callback-base-url: ${PAYOUT_CALLBACK_BASE_URL:http://localhost:8082}
+    callback-token: ${GATEWAY_CALLBACK_TOKEN:dev-gateway-token}
+    pending-timeout: ${PAYMENT_PENDING_TIMEOUT:PT2M}
   claims-topic: claims.events      # consumed: CLAIM_APPROVED, PAYOUT_UNACCEPTED
   events-topic: payout.events      # produced (and self-consumed for step 2)
   reserve-limit: 50000
