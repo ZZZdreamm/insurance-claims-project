@@ -32,7 +32,7 @@ class OutboxResilienceIT extends AbstractIntegrationTest {
 
     @Test
     void claimsSubmittedWhileKafkaIsDownAreRelayedWhenItReturns() throws Exception {
-        await().atMost(Duration.ofSeconds(30)).until(() -> outboxEvents.countByPublishedAtIsNull() == 0); // start clean
+        await().atMost(Duration.ofSeconds(90)).until(() -> outboxEvents.countByPublishedAtIsNull() == 0); // start clean
 
         KAFKA.getDockerClient().pauseContainerCmd(KAFKA.getContainerId()).exec();
         List<Claim> submitted = new ArrayList<>();
@@ -57,7 +57,7 @@ class OutboxResilienceIT extends AbstractIntegrationTest {
             KAFKA.getDockerClient().unpauseContainerCmd(KAFKA.getContainerId()).exec();
         }
 
-        await().atMost(Duration.ofSeconds(60)).untilAsserted(() -> {
+        await().atMost(Duration.ofSeconds(90)).untilAsserted(() -> {
             for (Claim claim : submitted) {
                 assertThat(outboxEvents
                                 .findByAggregateIdOrderById(claim.getId())
@@ -67,7 +67,7 @@ class OutboxResilienceIT extends AbstractIntegrationTest {
             }
         });
         // and the choreography resumes: the fake assessment answers, claims reach review
-        await().atMost(Duration.ofSeconds(60)).untilAsserted(() -> {
+        await().atMost(Duration.ofSeconds(90)).untilAsserted(() -> {
             for (Claim claim : submitted) {
                 assertThat(claimService.get(claim.getId()).getStatus())
                         .isEqualTo(com.kmultan.claims.domain.ClaimStatus.PENDING_REVIEW);

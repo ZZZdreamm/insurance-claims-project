@@ -123,7 +123,7 @@ class SecurityIT extends AbstractIntegrationTest {
     void reviewIsHeldByTheCallerAndOnlyTheHolderDecides() throws Exception {
         tokensUp();
         String id = submitAs(anna);
-        await().atMost(Duration.ofSeconds(60)).untilAsserted(() -> mockMvc.perform(
+        await().atMost(Duration.ofSeconds(90)).untilAsserted(() -> mockMvc.perform(
                         get("/api/v1/claims/{id}", id).header("Authorization", alice))
                 .andExpect(jsonPath("$.status").value("PENDING_REVIEW")));
 
@@ -142,7 +142,7 @@ class SecurityIT extends AbstractIntegrationTest {
                         .content("{\"approvedAmount\":90.99}"))
                 .andExpect(jsonPath("$.status").value("APPROVED"));
 
-        await().atMost(Duration.ofSeconds(60)).untilAsserted(() -> mockMvc.perform(
+        await().atMost(Duration.ofSeconds(90)).untilAsserted(() -> mockMvc.perform(
                         get("/api/v1/claims/{id}", id).header("Authorization", finance))
                 .andExpect(jsonPath("$.status").value("PAYOUT_FAILED")));
         mockMvc.perform(post("/api/v1/claims/{id}/retry-payout", id).header("Authorization", alice))

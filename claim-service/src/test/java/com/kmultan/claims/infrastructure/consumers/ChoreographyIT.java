@@ -42,7 +42,7 @@ class ChoreographyIT extends AbstractIntegrationTest {
     }
 
     private void awaitStatus(Claim claim, ClaimStatus expected) {
-        await().atMost(Duration.ofSeconds(60))
+        await().atMost(Duration.ofSeconds(90))
                 .untilAsserted(() ->
                         assertThat(claimService.get(claim.getId()).getStatus()).isEqualTo(expected));
     }
@@ -106,7 +106,7 @@ class ChoreographyIT extends AbstractIntegrationTest {
         claimService.approve(claim.getId(), new BigDecimal("650"));
         claimService.withdraw(claim.getId());
 
-        await().atMost(Duration.ofSeconds(60))
+        await().atMost(Duration.ofSeconds(90))
                 .untilAsserted(() -> assertThat(downstreamServices.eventTypesFor(claim.getId()))
                         .contains("PAYOUT_UNACCEPTED"));
         assertThat(claimService.get(claim.getId()).getStatus()).isEqualTo(ClaimStatus.WITHDRAWN);

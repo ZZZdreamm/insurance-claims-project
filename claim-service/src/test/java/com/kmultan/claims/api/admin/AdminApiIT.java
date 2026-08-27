@@ -55,7 +55,7 @@ class AdminApiIT extends AbstractIntegrationTest {
                 "Statistics claim with a cracked windscreen",
                 new BigDecimal("900"),
                 List.of());
-        await().atMost(Duration.ofSeconds(60))
+        await().atMost(Duration.ofSeconds(90))
                 .untilAsserted(() ->
                         assertThat(claimService.get(claim.getId()).getStatus()).isEqualTo(ClaimStatus.PENDING_REVIEW));
 

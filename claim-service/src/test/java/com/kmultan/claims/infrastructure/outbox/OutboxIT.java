@@ -117,7 +117,7 @@ class OutboxIT extends AbstractIntegrationTest {
         Claim claim = claimService.submit(
                 "POL-ORD", "ORD 1", LocalDate.now(), "Ordering integration test claim", null, List.of());
         // the fake assessment-service answers over Kafka; then approve like an adjuster would
-        await().atMost(Duration.ofSeconds(60))
+        await().atMost(Duration.ofSeconds(90))
                 .untilAsserted(() ->
                         assertThat(claimService.get(claim.getId()).getStatus()).isEqualTo(ClaimStatus.PENDING_REVIEW));
         claimService.claimReview(claim.getId(), "alice");

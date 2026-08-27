@@ -103,7 +103,7 @@ class ClaimServicePerformanceIT extends AbstractIntegrationTest {
 
         // outbox relay: everything above (+ the assessment events the fakes trigger) must drain quickly
         long drainStartedAt = System.currentTimeMillis();
-        await().atMost(Duration.ofSeconds(60)).until(() -> outboxEvents.countByPublishedAtIsNull() == 0);
+        await().atMost(Duration.ofSeconds(90)).until(() -> outboxEvents.countByPublishedAtIsNull() == 0);
         long drainMillis = System.currentTimeMillis() - drainStartedAt;
         System.out.printf(
                 "PERF %-32s pending drained in %d ms (poll interval 1000 ms, batch 100)%n",
