@@ -14,6 +14,8 @@ import com.kmultan.claims.domain.Claim;
 import com.kmultan.claims.domain.ClaimRepository;
 import com.kmultan.claims.domain.ClaimStatus;
 
+import net.javacrumbs.shedlock.spring.annotation.SchedulerLock;
+
 /**
  * Time-based reactions that a process engine used to own:
  * <ul>
@@ -44,6 +46,7 @@ public class ClaimTimeoutScheduler {
     }
 
     @Scheduled(fixedDelayString = "${claims.scheduler.interval-ms}")
+    @SchedulerLock(name = "claim-timeouts", lockAtLeastFor = "PT5S", lockAtMostFor = "PT2M")
     public void tick() {
         Instant now = Instant.now();
         escalateOverdueReviews(now);

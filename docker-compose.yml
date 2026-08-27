@@ -56,6 +56,23 @@ services:
         limits:
           memory: 512m
 
+  gateway:
+    image: nginx:1.27-alpine
+    container_name: claims-gateway
+    profiles: ["core"]
+    volumes:
+      - ./infra/gateway/nginx.conf:/etc/nginx/nginx.conf:ro
+    ports:
+      - "8080:8080"   # claim-service replicas
+      - "8082:8082"   # payout-service replicas
+    depends_on:
+      - claim-service
+      - payout-service
+    deploy:
+      resources:
+        limits:
+          memory: 32m
+
   redis:
     image: redis:7-alpine
     container_name: claims-redis
@@ -77,7 +94,7 @@ services:
     build:
       context: .
       dockerfile: claim-service/Dockerfile
-    container_name: claim-service
+    # no container_name and no host port: replicas are reached through the gateway (docker compose up --scale claim-service=2)
     profiles: ["core"]
     depends_on:
       postgres:
@@ -99,8 +116,6 @@ services:
       SPRING_DATASOURCE_PASSWORD: claims
       SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       JAVA_TOOL_OPTIONS: "-XX:TieredStopAtLevel=1 -XX:+UseSerialGC -Xmx256m"
-    ports:
-      - "8080:8080"
     deploy:
       resources:
         limits:
@@ -110,7 +125,6 @@ services:
     build:
       context: .
       dockerfile: payout-service/Dockerfile
-    container_name: payout-service
     profiles: ["core"]
     depends_on:
       postgres:
@@ -118,6 +132,10 @@ services:
       kafka:
         condition: service_started
     environment:
+      PAYMENT_GATEWAY_MODE: ${PAYMENT_GATEWAY_MODE:-async}
+      PAYMENT_GATEWAY_URL: http://payment-gateway:8083
+      PAYOUT_CALLBACK_BASE_URL: http://payout-service:8082
+      GATEWAY_CALLBACK_TOKEN: ${GATEWAY_CALLBACK_TOKEN:-dev-gateway-token}
       AUTH_JWT_SECRET: ${AUTH_JWT_SECRET:-dev-only-secret-change-me-please-32-bytes-minimum}
       LOKI_URL: ${LOKI_URL:-}
       OTEL_EXPORTER_OTLP_ENDPOINT: http://tempo:4318
@@ -127,12 +145,25 @@ services:
       SPRING_DATASOURCE_PASSWORD: claims
       SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       JAVA_TOOL_OPTIONS: "-XX:TieredStopAtLevel=1 -XX:+UseSerialGC -Xmx256m"
-    ports:
-      - "8082:8082"
     deploy:
       resources:
         limits:
           memory: 384m
+
+  payment-gateway:
+    build:
+      context: .
+      dockerfile: payment-gateway-simulator/Dockerfile
+    container_name: payment-gateway
+    profiles: ["core"]
+    environment:
+      GATEWAY_CALLBACK_TOKEN: ${GATEWAY_CALLBACK_TOKEN:-dev-gateway-token}
+    ports:
+      - "8083:8083"
+    deploy:
+      resources:
+        limits:
+          memory: 256m
 
   assessment-service:
     build: ./assessment-service
