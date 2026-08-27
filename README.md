@@ -51,12 +51,13 @@ triage timeout with an in-process fallback — is a small scheduler inside claim
 | Unit | Stack | Responsibility |
 |---|---|---|
 | **claim-service** | Java 21, Spring Boot 3.5, Postgres, Redis | The write model: `Claim` aggregate with a state machine and optimistic locking; accounts and JWT issuing; review queue with SLA scheduler; outbox publisher; idempotent consumers of assessment and payout events; admin API |
-| **payout-service** | Java 21, Spring Boot 3.5, Postgres (own database) | Saga participant: fund reservations and transfers in a ledger, a stub payment gateway with deterministic failures, dead-letter replay |
+| **payout-service** | Java 21, Spring Boot 3.5, Postgres (own database) | Saga participant: fund reservations and transfers in a ledger, sync stub or asynchronous webhook-based payment gateway, timeout compensation, dead-letter replay |
 | **search-service** | Java 21, Spring Boot 3.5, Elasticsearch | CQRS read side: `claims` index (current state, fuzzy search) and `claim-events` index (append-only fact log, timelines, Kibana) |
 | **assessment-service** | Python 3.12, FastAPI, ONNX Runtime | Triage: MobileNetV2 on the photos (zero-shot "wreck vs intact vehicle" signal) + weighted-keyword text model + amount prior; consumes `CLAIM_SUBMITTED`, publishes `ASSESSMENT_COMPLETED` |
+| **payment-gateway-simulator** | Java 21, Spring Boot 3.5 (stateless) | Stand-in for a real payment provider: accepts a transfer with `202 ACCEPTED`, confirms or rejects it later over a signed webhook |
 | **adjuster-console** | Next.js 14, TypeScript, Recharts | One console, four roles: policyholder, adjuster, finance, admin |
 | **platform-commons / platform-outbox** | Java libraries | Infrastructure shared by the Java services: Kafka dead-lettering, W3C trace propagation, JWT resource-server security, CORS, problem details, latency histograms, logging; the outbox (entity, `SKIP LOCKED` relay, trace carrier) |
-| Infrastructure | Postgres 16, Kafka 3.8 (KRaft, native image), Redis 7, Elasticsearch 8 + Kibana, Prometheus, Loki, Tempo, Grafana, Jenkins | All memory-capped in Compose; the whole stack is ~5 GB, the core is ~2 GB |
+| Infrastructure | Postgres 16, Kafka 3.8 (KRaft, native image), Redis 7, nginx gateway, Elasticsearch 8 + Kibana, Prometheus, Loki, Tempo, Grafana, Jenkins | All memory-capped in Compose; the whole stack is ~5 GB, the core is ~2 GB |
 
 Each service owns its data. The only things crossing service boundaries are Kafka events, the two
 shared infrastructure libraries, and one HTTP call (assessment-service fetches claim photos with a
@@ -194,8 +195,9 @@ docker compose --profile ci up -d --build                         # + Jenkins
 | Address | What | Profile |
 |---|---|---|
 | `localhost:3000` | console (login: see roles above) | `console` |
-| `localhost:8080` | claim-service API, `/actuator/health`, `/actuator/prometheus` | `core` |
-| `localhost:8082` | payout-service API | `core` |
+| `localhost:8080` | claim-service API (through the nginx gateway), `/actuator/health`, `/actuator/prometheus` | `core` |
+| `localhost:8082` | payout-service API (through the nginx gateway) | `core` |
+| `localhost:8083` | payment-gateway-simulator (`POST /transfers`) | `core` |
 | `localhost:8000` | assessment-service (`/assess`, `/health`, `/metrics`) | `core` |
 | `localhost:8081` | search-service API | `search` |
 | `localhost:5601` | Kibana with data views `claims` and `claim-events` | `search` |
@@ -205,6 +207,35 @@ docker compose --profile ci up -d --build                         # + Jenkins
 First start builds the images and downloads the ONNX model (a few minutes). Profiles keep the footprint
 small: `core` alone is enough to demo the saga. Windows/WSL note: host port 4318 is in a reserved range,
 so Tempo's OTLP port is published as `14318`; containers use `tempo:4318` internally.
+
+### Scaling out live
+
+```bash
+docker compose --profile core up -d --scale claim-service=3 --scale payout-service=2
+docker compose --profile core up -d --scale claim-service=1 --scale payout-service=1   # back down
+```
+
+Why this works with no code path caring which replica handles what:
+
+- **Ingress** — claim-service and payout-service publish no host ports; an nginx gateway owns
+  `8080`/`8082` and resolves the service name through Docker's DNS, which returns every replica's
+  address round-robin. Adding a replica changes nothing but the DNS answer.
+- **HTTP is stateless** — auth is a self-contained JWT verified with a shared secret, idempotency keys
+  and rate-limit counters live in Redis, business state in Postgres with optimistic locking — so any
+  replica can serve any request, including the payment provider's webhook.
+- **Kafka partitions are the unit of parallelism** — every topic is keyed by claim id over 3 partitions;
+  a consumer group spreads partitions across replicas, so events for one claim stay ordered on one
+  consumer while different claims process in parallel. A third payout replica would idle — that is the
+  partition count, not a bug.
+- **The outbox relay is concurrency-safe** — each tick claims rows with `FOR UPDATE SKIP LOCKED`, so two
+  relays never pick the same row and ordering per aggregate is preserved.
+- **Schedulers elect a leader** — the SLA/timeout sweeps run on every replica's clock but ShedLock
+  (a row lock in Postgres, V8) lets exactly one instance execute a given tick; the sweeps are also
+  idempotent, so a lock expiry mid-run cannot double-escalate.
+
+The drill: scale to 3, run `perf/run.sh`, watch per-instance request rates in Grafana, `docker kill`
+one replica mid-load — traffic shifts to the survivors, the killed instance's partitions rebalance,
+nothing is lost.
 
 ## 7. API reference
 
@@ -255,6 +286,8 @@ integration tests are the ones that lie.
 |---|---|
 | `ChoreographyIT` | the whole lifecycle over a real broker with in-JVM fakes of the two downstream services: happy path to `PAID`; `.99` → `PAYOUT_FAILED` → retry → `PAID`; reservation rejected; withdraw-after-approve → `PAYOUT_UNACCEPTED`; SLA escalation once per claim; triage timeout → heuristic fallback |
 | `OutboxIT`, `OutboxResilienceIT`, `TracePropagationIT` | same-transaction write, rollback, per-claim ordering on one partition; Kafka paused mid-run → nothing lost, relayed in order when it returns; the Kafka header carries the originating trace id |
+| `AsynchronousGatewayIT` | the async provider path: transfer handed off, payout `PENDING` with the reservation held; webhook completion settles, rejection compensates, a redelivered webhook is a no-op, a missing shared token is `401`, an unconfirmed transfer is failed by the timeout sweep |
+| `ToxiproxyResilienceIT` | the app talks to Kafka through a Toxiproxy TCP proxy: 1.5 s broker latency never slows the HTTP path (the outbox absorbs it); a severed connection loses nothing and the backlog drains on reconnect |
 | `PayoutSagaIT`, `PayoutThroughputIT` | reserve → transfer settles; redelivered approval handled once; failed transfer compensated and retryable; unaccepted payout reversed; poison → DLT → replay; 200 approvals delivered twice → exactly 200 payouts |
 | `ClaimProjectionIT`, `SearchPerformanceIT` | fuzzy search, stale-event rejection, event log, timeline endpoint; 300 events → searchable, query p95 |
 | `SecurityIT`, `RedisGuardsIT`, `ReviewQueueIT`, `AdminApiIT`, `ClaimControllerIT` | roles, ownership, token attacks; idempotent replay, atomic rate limit under a 40-request burst, window rollover with an injected `Clock`, 10 concurrent requests with one key → one claim; paging/filters; admin statistics and account rules; multipart photos, problem details, optimistic locking |
@@ -294,6 +327,10 @@ The per-client rate limit dominates any load test, so raise it for the run:
   across claim-service → Kafka → assessment-service (Python) / payout-service / search-service.
 - **Logs** — loki4j appender behind `LOKI_URL`, low-cardinality labels (`app`, `level`), trace id in the
   line; Grafana links a log line to its trace and a span to its logs.
+- **Alerts** — provisioned in Grafana (`infra/observability/grafana/provisioning/alerting/`): service
+  down, outbox backlog above 100 for 5 min (broker unreachable), Kafka listener failures (records heading
+  for the DLT), HTTP 5xx ratio above 5 %, JVM heap above 90 %. Each rule carries a runbook annotation;
+  delivery goes to a webhook contact point you can repoint at Slack or Opsgenie.
 - **Kibana** is for business facts, not logs: Discover over `claim-events` answers "what happened to
   CLM-2026-000042" and "approvals per hour by severity".
 
@@ -304,6 +341,11 @@ The per-client rate limit dominates any load test, so raise it for the run:
 - **Reservation limit**: approve more than 50 000 → `RESERVATION_REJECTED`, nothing to compensate.
 - **Withdraw after approval**: withdraw while the payout is in flight → `PAYOUT_UNACCEPTED` → payout-service
   reverses the transfer; the ledger shows `REVERSED`.
+- **Provider never confirms**: approve an amount ending in `.77` → the gateway accepts the transfer and
+  goes silent; the payout sits in `PENDING` until the timeout sweep fails it, releases the reservation
+  and publishes `PAYOUT_FAILED` — finance retries as usual.
+- **Payment gateway down**: `docker compose stop payment-gateway` → approvals park as `PENDING`
+  reservations-held payouts; the timeout sweep compensates them; start it again and new approvals flow.
 - **ML service down**: `docker compose stop assessment-service` → claims still reach review after 2
   minutes, labelled `heuristic-fallback`.
 - **Broker down**: `docker pause claims-kafka` → submissions keep succeeding, `outbox_pending` climbs on the
