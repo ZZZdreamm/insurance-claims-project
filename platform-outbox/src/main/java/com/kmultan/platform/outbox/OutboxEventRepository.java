@@ -28,4 +28,10 @@ public interface OutboxEventRepository extends JpaRepository<OutboxEvent, Long> 
     List<OutboxEvent> findByAggregateIdOrderById(UUID aggregateId);
 
     long countByPublishedAtIsNull();
+
+    /** How many distinct aggregates ever emitted each event type on a topic — the lifetime history a status snapshot cannot show. */
+    @org.springframework.data.jpa.repository.Query(
+            "select e.eventType, count(distinct e.aggregateId) from OutboxEvent e where e.topic = :topic group by e.eventType")
+    java.util.List<Object[]> countDistinctAggregatesByEventType(
+            @org.springframework.data.repository.query.Param("topic") String topic);
 }

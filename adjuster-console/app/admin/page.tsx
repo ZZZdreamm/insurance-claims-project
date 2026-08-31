@@ -33,7 +33,9 @@ function Dashboard({ statistics }: { statistics: Statistics }) {
         <div className="card"><h2>Severity by ML assessment</h2>
           <div className="chart"><ResponsiveContainer><PieChart><Pie data={bySeverity} dataKey="value" nameKey="name" outerRadius={95}>{bySeverity.map((entry) => <Cell key={entry.name} fill={SEVERITY_COLORS[entry.name] ?? '#999'} />)}</Pie><Legend /><Tooltip /></PieChart></ResponsiveContainer></div></div>
         <div className="card"><h2>Statuses</h2>
-          <table><tbody>{Object.entries(statistics.byStatus).map(([status, count]) => <tr key={status}><td><span className="badge" style={{ background: STATUS_COLORS[status] + '33', color: STATUS_COLORS[status] }}>{status}</span></td><td className="num">{count}</td></tr>)}</tbody></table></div>
+          <p className="muted small">now = claims currently in the status · ever = claims that passed through it (from the event log); transitional statuses last seconds, so their "now" is usually 0</p>
+          <table><thead><tr><th></th><th className="num">now</th><th className="num">ever</th></tr></thead>
+            <tbody>{Object.entries(statistics.byStatus).map(([status, count]) => <tr key={status}><td><span className="badge" style={{ background: STATUS_COLORS[status] + '33', color: STATUS_COLORS[status] }}>{status}</span></td><td className="num">{count}</td><td className="num muted">{statistics.everInStatus?.[status as keyof typeof statistics.everInStatus] ?? 0}</td></tr>)}</tbody></table></div>
       </div>
     </>
   );

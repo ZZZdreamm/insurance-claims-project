@@ -89,7 +89,7 @@ export interface ReplayResult { topic: string; replayed: number; }
 
 /** admin */
 export interface Statistics {
-  totalClaims: number; byStatus: Record<ClaimStatus, number>; bySeverity: Record<Severity, number>; submittedPerDay: Record<string, number>;
+  totalClaims: number; byStatus: Record<ClaimStatus, number>; everInStatus: Record<ClaimStatus, number>; bySeverity: Record<Severity, number>; submittedPerDay: Record<string, number>;
   openReviews: number; escalatedReviews: number; paidTotal: number; approvedAwaitingPayout: number;
   averageSecondsToAssessment: number | null; averageSecondsToPayment: number | null; accounts: number;
 }

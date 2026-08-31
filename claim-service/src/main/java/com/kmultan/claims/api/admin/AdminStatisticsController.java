@@ -29,15 +29,36 @@ public class AdminStatisticsController {
 
     private final ClaimRepository claims;
     private final UserAccountRepository accounts;
+    private final com.kmultan.platform.outbox.OutboxEventRepository outboxEvents;
+    private final String claimsTopic;
 
-    public AdminStatisticsController(ClaimRepository claims, UserAccountRepository accounts) {
+    /** The event on claims.events that proves a claim reached the status at least once. */
+    private static final Map<String, ClaimStatus> STATUS_REACHED_BY_EVENT = Map.of(
+            "CLAIM_SUBMITTED", ClaimStatus.SUBMITTED,
+            "ASSESSMENT_COMPLETED", ClaimStatus.PENDING_REVIEW,
+            "SECOND_APPROVAL_REQUESTED", ClaimStatus.PENDING_SECOND_APPROVAL,
+            "CLAIM_APPROVED", ClaimStatus.APPROVED,
+            "CLAIM_PARTIALLY_PAID", ClaimStatus.PARTIALLY_PAID,
+            "CLAIM_PAID", ClaimStatus.PAID,
+            "PAYOUT_FAILED", ClaimStatus.PAYOUT_FAILED,
+            "CLAIM_REJECTED", ClaimStatus.REJECTED,
+            "CLAIM_WITHDRAWN", ClaimStatus.WITHDRAWN);
+
+    public AdminStatisticsController(
+            ClaimRepository claims,
+            UserAccountRepository accounts,
+            com.kmultan.platform.outbox.OutboxEventRepository outboxEvents,
+            @org.springframework.beans.factory.annotation.Value("${claims.topics.claims}") String claimsTopic) {
         this.claims = claims;
         this.accounts = accounts;
+        this.outboxEvents = outboxEvents;
+        this.claimsTopic = claimsTopic;
     }
 
     public record Statistics(
             long totalClaims,
             Map<ClaimStatus, Long> byStatus,
+            Map<ClaimStatus, Long> everInStatus,
             Map<Severity, Long> bySeverity,
             Map<LocalDate, Long> submittedPerDay,
             long openReviews,
@@ -56,6 +77,19 @@ public class AdminStatisticsController {
         }
         claims.countByStatusGrouped().forEach(row -> byStatus.put(row.getStatus(), row.getCount()));
 
+        // lifetime view from the event log: how many claims ever passed through each status,
+        // regardless of where they are now — transitional states are otherwise always near zero
+        Map<ClaimStatus, Long> everInStatus = new EnumMap<>(ClaimStatus.class);
+        for (ClaimStatus status : ClaimStatus.values()) {
+            everInStatus.put(status, 0L);
+        }
+        outboxEvents.countDistinctAggregatesByEventType(claimsTopic).forEach(row -> {
+            ClaimStatus reached = STATUS_REACHED_BY_EVENT.get((String) row[0]);
+            if (reached != null) {
+                everInStatus.merge(reached, (Long) row[1], Long::sum);
+            }
+        });
+
         Map<Severity, Long> bySeverity = new EnumMap<>(Severity.class);
         for (Severity severity : Severity.values()) {
             bySeverity.put(severity, 0L);
@@ -73,6 +107,7 @@ public class AdminStatisticsController {
         return new Statistics(
                 claims.count(),
                 byStatus,
+                everInStatus,
                 bySeverity,
                 perDay,
                 claims.countByStatus(ClaimStatus.PENDING_REVIEW),
