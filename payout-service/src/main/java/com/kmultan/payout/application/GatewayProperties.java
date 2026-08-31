@@ -1,4 +1,4 @@
-package com.kmultan.payout.infrastructure.gateway;
+package com.kmultan.payout.application;
 
 import java.time.Duration;
 

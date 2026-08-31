@@ -20,9 +20,9 @@ import com.kmultan.claims.domain.auth.UserAccountRepository;
  * accounts through an admin flow or an IdP instead.
  */
 @Configuration
-public class DemoAccountSeeder {
+public class DemoAccountSeederConfiguration {
 
-    private static final Logger log = LoggerFactory.getLogger(DemoAccountSeeder.class);
+    private static final Logger log = LoggerFactory.getLogger(DemoAccountSeederConfiguration.class);
 
     @Bean
     public ApplicationRunner seedDemoAccounts(

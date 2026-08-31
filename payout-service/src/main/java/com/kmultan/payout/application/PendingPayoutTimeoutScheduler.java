@@ -6,8 +6,6 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
-import com.kmultan.payout.infrastructure.gateway.GatewayProperties;
-
 /** Sweeps payouts an asynchronous provider accepted but never confirmed. */
 @Component
 @ConditionalOnProperty(name = "payout.gateway.mode", havingValue = "async")

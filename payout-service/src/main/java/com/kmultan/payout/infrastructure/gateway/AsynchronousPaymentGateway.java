@@ -10,6 +10,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 
+import com.kmultan.payout.application.GatewayProperties;
 import com.kmultan.payout.domain.PaymentGateway;
 
 /**
