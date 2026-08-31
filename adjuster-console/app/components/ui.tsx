@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { api } from '../api';
 import type { Claim, ClaimStatus, Severity } from '../types';
 
@@ -98,7 +98,18 @@ export function Photos({ claim, large }: { claim: Claim; large?: boolean }) {
   );
 }
 
+/**
+ * The setters MUST be referentially stable: every page puts them in the deps of its
+ * polling `refresh` callback. Fresh lambdas per render meant a new `refresh` per render,
+ * which re-ran the effect, which fetched, which set state, which rendered — an infinite
+ * request loop that eventually starved the browser (ERR_INSUFFICIENT_RESOURCES).
+ */
 export function useErrorState(): [string | null, (error: unknown) => void, () => void] {
   const [error, setError] = useState<string | null>(null);
-  return [error, (candidate: unknown) => setError(candidate instanceof Error ? candidate.message : String(candidate)), () => setError(null)];
+  const report = useCallback(
+    (candidate: unknown) => setError(candidate instanceof Error ? candidate.message : String(candidate)),
+    [],
+  );
+  const clear = useCallback(() => setError(null), []);
+  return [error, report, clear];
 }
