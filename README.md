@@ -42,9 +42,33 @@ and everything runs on a single laptop, for free, with `docker compose up`.
 ```
 
 A claim moves through `SUBMITTED → PENDING_REVIEW → APPROVED → PAID`, with `REJECTED`, `WITHDRAWN` and a
-retryable `PAYOUT_FAILED` on the side. Nothing coordinates this centrally: each service reacts to facts
+retryable `PAYOUT_FAILED` on the side — plus `PENDING_SECOND_APPROVAL` when the payable amount exceeds the
+approval limit (four-eyes) and `PARTIALLY_PAID` after an advance. Nothing coordinates this centrally: each service reacts to facts
 published on Kafka (event choreography), and time-based behaviour — a 48-hour review SLA, a 2-minute
 triage timeout with an in-process fallback — is a small scheduler inside claim-service.
+
+### The insurance domain around the lifecycle
+
+- **Policies** — a claim is validated against a real policy: coverage period, holder, and at settlement
+  the award is capped at the sum insured and reduced by the deductible. Policyholders see their book
+  under *My policies* and submit against it.
+- **Claims reserves** — every open claim carries the insurer's expected remaining cost: opened from the
+  estimate, adjusted by the assessment and the settlement, reduced as money goes out, released on
+  rejection/withdrawal. Finance sees the open exposure by severity.
+- **Four-eyes approvals** — above `claims.review.approval-limit` (default 10 000) the claim parks in
+  `PENDING_SECOND_APPROVAL`; a *different* adjuster must confirm before payout starts.
+- **Fraud screening** — rule-based flags at intake (duplicate claim for the vehicle, incident right
+  after policy start, reused photo detected by content hash, claim frequency); flags never block, they
+  route the claim to the special-investigation view of the review queue.
+- **Advances** — an approval can pay out only a share (e.g. 25 %) now; finance releases the remainder
+  later. Every money movement is a row in the claim's payment history.
+- **Subrogation** — after payout, a recovery case can be opened against the liable third party's
+  insurer; finance records recoveries in instalments until the case closes as RECOVERED or is
+  written off. Open exposure and recovered totals are on the finance view.
+- **Customer communications** — every lifecycle step writes the message the policyholder would
+  receive (registration, assessment, decision, advance, payout, hiccups) into an auditable history,
+  and the formal decision letter is rendered as a PDF (`GET /api/v1/claims/{id}/decision-document`)
+  with the settlement breakdown and appeal instructions.
 
 ## 2. Architecture
 
