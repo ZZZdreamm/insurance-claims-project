@@ -121,7 +121,7 @@ class OutboxIT extends AbstractIntegrationTest {
                 .untilAsserted(() ->
                         assertThat(claimService.get(claim.getId()).getStatus()).isEqualTo(ClaimStatus.PENDING_REVIEW));
         claimService.claimReview(claim.getId(), "alice");
-        claimService.approve(claim.getId(), new BigDecimal("250"));
+        claimService.approve(claim.getId(), new BigDecimal("250"), null, "alice");
 
         List<ConsumerRecord<String, String>> records = awaitRecords(claim, 4);
         assertThat(records.subList(0, 4))

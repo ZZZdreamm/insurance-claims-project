@@ -63,7 +63,7 @@ class ChoreographyIT extends AbstractIntegrationTest {
         claimService.claimReview(claim.getId(), "alice");
         assertThatThrownBy(() -> claimService.claimReview(claim.getId(), "bob"))
                 .isInstanceOf(IllegalStateException.class);
-        claimService.approve(claim.getId(), new BigDecimal("1400"));
+        claimService.approve(claim.getId(), new BigDecimal("1400"), null, "alice");
 
         awaitStatus(claim, ClaimStatus.PAID);
         await().atMost(Duration.ofSeconds(10)).untilAsserted(() -> assertThat(
@@ -76,7 +76,7 @@ class ChoreographyIT extends AbstractIntegrationTest {
     void failedPayoutCanBeRetriedWithCorrectedAmount() {
         Claim claim = submit("Bonnet and headlight damage from a deer", "2000");
         awaitStatus(claim, ClaimStatus.PENDING_REVIEW);
-        claimService.approve(claim.getId(), new BigDecimal("1500.99"));
+        claimService.approve(claim.getId(), new BigDecimal("1500.99"), null, "alice");
 
         awaitStatus(claim, ClaimStatus.PAYOUT_FAILED);
         assertThat(claimService.get(claim.getId()).getPayoutFailureReason())
@@ -93,7 +93,10 @@ class ChoreographyIT extends AbstractIntegrationTest {
     void rejectedReservationFailsThePayout() {
         Claim claim = submit("Total loss after a motorway pile-up", "70000");
         awaitStatus(claim, ClaimStatus.PENDING_REVIEW);
-        claimService.approve(claim.getId(), new BigDecimal("60000"));
+        claimService.approve(claim.getId(), new BigDecimal("60000"), null, "alice");
+        // above the approval limit the claim parks for a second, different approver (four-eyes)
+        assertThat(claimService.get(claim.getId()).getStatus()).isEqualTo(ClaimStatus.PENDING_SECOND_APPROVAL);
+        claimService.secondApprove(claim.getId(), "bob");
         awaitStatus(claim, ClaimStatus.PAYOUT_FAILED);
         assertThat(claimService.get(claim.getId()).getPayoutFailureReason()).isEqualTo("Amount exceeds reserve limit");
     }
@@ -103,7 +106,7 @@ class ChoreographyIT extends AbstractIntegrationTest {
         Claim claim = submit("Door dented in a car park", "700");
         awaitStatus(claim, ClaimStatus.PENDING_REVIEW);
         // approve then withdraw immediately: payout-service will still pay (it reacted to CLAIM_APPROVED)
-        claimService.approve(claim.getId(), new BigDecimal("650"));
+        claimService.approve(claim.getId(), new BigDecimal("650"), null, "alice");
         claimService.withdraw(claim.getId());
 
         await().atMost(Duration.ofSeconds(90))

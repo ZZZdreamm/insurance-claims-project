@@ -62,7 +62,9 @@
     <module name="ArrayTypeStyle"/>
     <module name="UpperEll"/>
     <module name="MethodLength"><property name="max" value="80"/></module>
-    <module name="ParameterNumber"><property name="max" value="8"/><property name="ignoreOverriddenMethods" value="true"/></module>
+    <module name="ParameterNumber">
+      <!-- constructors excluded: Spring DI constructors legitimately grow with collaborators -->
+      <property name="tokens" value="METHOD_DEF"/><property name="max" value="8"/><property name="ignoreOverriddenMethods" value="true"/></module>
     <module name="NestedIfDepth"><property name="max" value="2"/></module>
     <module name="CyclomaticComplexity"><property name="max" value="12"/></module>
   </module>

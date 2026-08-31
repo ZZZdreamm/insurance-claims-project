@@ -10,4 +10,6 @@ public interface ClaimPhotoRepository extends JpaRepository<ClaimPhoto, UUID> {
     List<ClaimPhoto> findByClaimIdOrderByCreatedAt(UUID claimId);
 
     Optional<ClaimPhoto> findByIdAndClaimId(UUID id, UUID claimId);
+
+    boolean existsByContentHashAndClaimIdNot(String contentHash, java.util.UUID claimId);
 }

@@ -57,7 +57,9 @@ class ClaimEventsContractTest {
                 "Rear bumper dented in a parking lot",
                 new BigDecimal("1200.00"));
         claim.completeAssessment(com.kmultan.claims.domain.Severity.MODERATE, new BigDecimal("1500.00"), "test", null);
-        claim.approve(new BigDecimal("1400.00"));
+        claim.approve(
+                new Claim.Settlement(new BigDecimal("1400.00"), new BigDecimal("1400.00"), BigDecimal.ZERO),
+                new BigDecimal("1400.00"));
         return objectMapper.writeValueAsString(
                 ClaimEvent.of(ClaimEventType.CLAIM_APPROVED, claim, List.of(UUID.randomUUID())));
     }

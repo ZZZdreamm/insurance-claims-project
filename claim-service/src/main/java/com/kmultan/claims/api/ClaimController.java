@@ -44,11 +44,14 @@ public class ClaimController {
             Set.of(MediaType.IMAGE_JPEG_VALUE, MediaType.IMAGE_PNG_VALUE, "image/webp");
 
     private final ClaimService claimService;
+    private final DecisionDocumentRenderer decisionDocuments;
     private final ClaimResponseAssembler responses;
 
-    public ClaimController(ClaimService claimService, ClaimResponseAssembler responses) {
+    public ClaimController(
+            ClaimService claimService, ClaimResponseAssembler responses, DecisionDocumentRenderer decisionDocuments) {
         this.claimService = claimService;
         this.responses = responses;
+        this.decisionDocuments = decisionDocuments;
     }
 
     /** JSON submit: no photos, triage falls back to the text model. The claim belongs to the caller. */
@@ -134,6 +137,61 @@ public class ClaimController {
     }
 
     /** PAYOUT_FAILED -> APPROVED, optionally with a corrected amount; payout-service reacts to the new CLAIM_APPROVED. */
+    /** Every message sent to the policyholder about this claim. */
+    @GetMapping("/{claimId}/communications")
+    public List<CommunicationResponse> communications(@PathVariable UUID claimId) {
+        ClaimAccessPolicy.assertCanRead(claimService.get(claimId), AuthenticatedUser.current());
+        return claimService.communicationsOf(claimId).stream()
+                .map(message -> new CommunicationResponse(
+                        message.getId(),
+                        message.getType().name(),
+                        message.getSubject(),
+                        message.getBody(),
+                        message.getSentAt()))
+                .toList();
+    }
+
+    public record CommunicationResponse(UUID id, String type, String subject, String body, java.time.Instant sentAt) {}
+
+    /** The formal decision letter as PDF; available once a decision exists. */
+    @GetMapping("/{claimId}/decision-document")
+    public org.springframework.http.ResponseEntity<byte[]> decisionDocument(@PathVariable UUID claimId) {
+        var claim = claimService.get(claimId);
+        ClaimAccessPolicy.assertCanRead(claim, AuthenticatedUser.current());
+        if (!decisionDocuments.hasDecision(claim)) {
+            throw new IllegalStateException("No decision has been made on claim " + claim.getClaimNumber() + " yet");
+        }
+        byte[] pdf = decisionDocuments.render(claim, claimService.policyOf(claimId));
+        return org.springframework.http.ResponseEntity.ok()
+                .header("Content-Disposition", "attachment; filename=decision-" + claim.getClaimNumber() + ".pdf")
+                .contentType(org.springframework.http.MediaType.APPLICATION_PDF)
+                .body(pdf);
+    }
+
+    /** After an advance: finance releases the remaining payable amount. */
+    @PostMapping("/{claimId}/pay-remainder")
+    @PreAuthorize("hasAnyRole('FINANCE', 'ADMIN')")
+    public ClaimResponse payRemainder(@PathVariable UUID claimId) {
+        return responses.toResponse(claimService.payRemainder(claimId));
+    }
+
+    /** Every money movement on the claim: advances, the final settlement, retried payouts. */
+    @GetMapping("/{claimId}/payments")
+    public List<PaymentResponse> payments(@PathVariable UUID claimId) {
+        ClaimAccessPolicy.assertCanRead(claimService.get(claimId), AuthenticatedUser.current());
+        return claimService.paymentsOf(claimId).stream()
+                .map(payment -> new PaymentResponse(
+                        payment.getId(),
+                        payment.getAmount(),
+                        payment.getPaymentType().name(),
+                        payment.getReference(),
+                        payment.getIssuedAt()))
+                .toList();
+    }
+
+    public record PaymentResponse(
+            UUID id, java.math.BigDecimal amount, String paymentType, String reference, java.time.Instant issuedAt) {}
+
     @PostMapping("/{claimId}/retry-payout")
     @PreAuthorize("hasAnyRole('FINANCE', 'ADMIN')")
     public ClaimResponse retryPayout(

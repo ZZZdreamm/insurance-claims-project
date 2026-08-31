@@ -53,10 +53,11 @@ public class ReviewController {
             @RequestParam(defaultValue = "ALL") Scope scope,
             @RequestParam(required = false) Severity severity,
             @RequestParam(defaultValue = "false") boolean escalatedOnly,
+            @RequestParam(defaultValue = "false") boolean fraudOnly,
             @PageableDefault(size = 20) Pageable pageable) {
         String caller = AuthenticatedUser.current().username();
         ClaimService.ReviewQueueFilter filter = new ClaimService.ReviewQueueFilter(
-                scope == Scope.MINE ? caller : null, scope == Scope.UNASSIGNED, severity, escalatedOnly);
+                scope == Scope.MINE ? caller : null, scope == Scope.UNASSIGNED, severity, escalatedOnly, fraudOnly);
         return claimService.reviewQueue(filter, pageable).map(responses::toResponse);
     }
 
@@ -80,7 +81,24 @@ public class ReviewController {
     @PostMapping("/{claimId}/approve")
     public ClaimResponse approve(@PathVariable UUID claimId, @Valid @RequestBody ApproveClaimRequest request) {
         ClaimAccessPolicy.assertHoldsReview(claimService.get(claimId), AuthenticatedUser.current());
-        return responses.toResponse(claimService.approve(claimId, request.approvedAmount()));
+        return responses.toResponse(claimService.approve(
+                claimId,
+                request.approvedAmount(),
+                request.advancePercent(),
+                AuthenticatedUser.current().username()));
+    }
+
+    /** Claims parked above the approval limit, waiting for a second pair of eyes. */
+    @GetMapping("/second-approvals")
+    public Page<ClaimResponse> awaitingSecondApproval(@PageableDefault(size = 20) Pageable pageable) {
+        return claimService.awaitingSecondApproval(pageable).map(responses::toResponse);
+    }
+
+    /** Four-eyes: must be a different person than the first approver. */
+    @PostMapping("/{claimId}/second-approval")
+    public ClaimResponse secondApprove(@PathVariable UUID claimId) {
+        return responses.toResponse(
+                claimService.secondApprove(claimId, AuthenticatedUser.current().username()));
     }
 
     @PostMapping("/{claimId}/reject")

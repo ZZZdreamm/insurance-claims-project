@@ -28,7 +28,7 @@ export function setup() {
 
 export default function (data) {
   const body = JSON.stringify({
-    policyNumber: `POL-${__VU}`,
+    policyNumber: `POL-${(__VU % 50) + 1}`,
     plateNumber: `WA ${10000 + (__ITER % 89999)}`,
     incidentDate: new Date().toISOString().slice(0, 10),
     description: 'k6 load test claim: rear bumper dented in a car park',

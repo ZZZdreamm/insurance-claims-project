@@ -60,7 +60,9 @@ class ClaimTest {
     void happyPathToPaid() {
         Claim claim = claimPendingReview();
         claim.claimReview("alice");
-        claim.approve(new BigDecimal("1400.00"));
+        claim.approve(
+                new Claim.Settlement(new BigDecimal("1400.00"), new BigDecimal("1400.00"), BigDecimal.ZERO),
+                new BigDecimal("1400.00"));
         claim.markPaid();
         assertThat(claim.getStatus()).isEqualTo(ClaimStatus.PAID);
         assertThat(claim.getApprovedAmount()).isEqualByComparingTo("1400.00");
@@ -69,7 +71,8 @@ class ClaimTest {
     @Test
     void cannotApproveBeforeReview() {
         Claim claim = submittedClaim();
-        assertThatThrownBy(() -> claim.approve(BigDecimal.TEN))
+        assertThatThrownBy(() -> claim.approve(
+                        new Claim.Settlement(BigDecimal.TEN, BigDecimal.TEN, BigDecimal.ZERO), BigDecimal.TEN))
                 .isInstanceOf(InvalidStateTransitionException.class)
                 .hasMessageContaining("SUBMITTED")
                 .hasMessageContaining("APPROVED");
@@ -109,7 +112,9 @@ class ClaimTest {
     @Test
     void failedPayoutCanBeRetriedWithCorrectedAmount() {
         Claim claim = claimPendingReview();
-        claim.approve(new BigDecimal("100.99"));
+        claim.approve(
+                new Claim.Settlement(new BigDecimal("100.99"), new BigDecimal("100.99"), BigDecimal.ZERO),
+                new BigDecimal("100.99"));
         claim.markPayoutFailed("provider rejected");
         assertThat(claim.getStatus()).isEqualTo(ClaimStatus.PAYOUT_FAILED);
         assertThat(claim.getPayoutFailureReason()).isEqualTo("provider rejected");

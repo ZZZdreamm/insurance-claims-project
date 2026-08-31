@@ -89,6 +89,7 @@ public interface ClaimRepository extends JpaRepository<Claim, UUID> {
               and (:unassignedOnly = false or c.reviewAssignee is null)
               and (:severity is null or c.severity = :severity)
               and (:escalatedOnly = false or c.escalatedAt is not null)
+              and (:fraudOnly = false or c.fraudFlags is not null)
             order by c.reviewDueAt asc
             """)
     Page<Claim> findReviewQueue(
@@ -96,7 +97,15 @@ public interface ClaimRepository extends JpaRepository<Claim, UUID> {
             @Param("unassignedOnly") boolean unassignedOnly,
             @Param("severity") Severity severity,
             @Param("escalatedOnly") boolean escalatedOnly,
+            @Param("fraudOnly") boolean fraudOnly,
             Pageable pageable);
+
+    long countByStatusAndFraudFlagsIsNotNull(ClaimStatus status);
+
+    boolean existsByPlateNumberAndIncidentDateBetweenAndIdNot(
+            String plateNumber, java.time.LocalDate from, java.time.LocalDate to, UUID excludedClaimId);
+
+    long countByOwnerIdAndCreatedAtAfter(UUID ownerId, java.time.Instant after);
 
     long countByStatusAndReviewAssigneeIsNull(ClaimStatus status);
 

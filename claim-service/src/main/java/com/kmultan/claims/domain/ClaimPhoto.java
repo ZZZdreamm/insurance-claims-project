@@ -38,6 +38,10 @@ public class ClaimPhoto {
     @Column(name = "created_at", nullable = false)
     private Instant createdAt = Instant.now();
 
+    /** SHA-256 of the bytes; lets the fraud screen spot the same photo attached to different claims. */
+    @Column(name = "content_hash")
+    private String contentHash;
+
     protected ClaimPhoto() {}
 
     public ClaimPhoto(UUID claimId, String contentType, byte[] data) {
@@ -46,6 +50,25 @@ public class ClaimPhoto {
         this.contentType = contentType;
         this.data = data;
         this.sizeBytes = data.length;
+        this.contentHash = sha256Hex(data);
+    }
+
+    private static String sha256Hex(byte[] bytes) {
+        try {
+            byte[] digest = java.security.MessageDigest.getInstance("SHA-256").digest(bytes);
+            StringBuilder hex = new StringBuilder(digest.length * 2);
+            for (byte digestByte : digest) {
+                hex.append(Character.forDigit((digestByte >> 4) & 0xF, 16))
+                        .append(Character.forDigit(digestByte & 0xF, 16));
+            }
+            return hex.toString();
+        } catch (java.security.NoSuchAlgorithmException impossible) {
+            throw new IllegalStateException(impossible);
+        }
+    }
+
+    public String getContentHash() {
+        return contentHash;
     }
 
     public UUID getId() {

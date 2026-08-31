@@ -193,7 +193,24 @@ class ToxiproxyResilienceIT {
     ClaimService claimService;
 
     @Autowired
+    com.kmultan.claims.domain.PolicyRepository policyRepository;
+
+    @Autowired
     OutboxEventRepository outboxEvents;
+
+    @org.junit.jupiter.api.BeforeEach
+    void seedPolicy() {
+        if (!policyRepository.existsById("POL-TX")) {
+            policyRepository.save(new com.kmultan.claims.domain.Policy(
+                    "POL-TX",
+                    null,
+                    com.kmultan.claims.domain.Policy.CoverageType.OC,
+                    LocalDate.of(2020, 1, 1),
+                    LocalDate.of(2035, 12, 31),
+                    new BigDecimal("1000000.00"),
+                    BigDecimal.ZERO));
+        }
+    }
 
     @AfterEach
     void healTheNetwork() throws IOException {

@@ -87,6 +87,28 @@ public class Claim {
     @Column(name = "payout_reference", length = 64)
     private String payoutReference;
 
+    @Column(name = "gross_approved_amount", precision = 12, scale = 2)
+    private BigDecimal grossApprovedAmount;
+
+    @Column(name = "payable_amount", precision = 12, scale = 2)
+    private BigDecimal payableAmount;
+
+    @Column(name = "deductible_applied", precision = 12, scale = 2)
+    private BigDecimal deductibleApplied;
+
+    @Column(name = "paid_amount", nullable = false, precision = 12, scale = 2)
+    private BigDecimal paidAmount = BigDecimal.ZERO;
+
+    @Column(name = "first_approver")
+    private String firstApprover;
+
+    @Column(name = "first_approved_at")
+    private Instant firstApprovedAt;
+
+    @org.hibernate.annotations.JdbcTypeCode(org.hibernate.type.SqlTypes.JSON)
+    @Column(name = "fraud_flags")
+    private java.util.List<String> fraudFlags;
+
     @Column(name = "review_assignee", length = 64)
     private String reviewAssignee;
 
@@ -217,13 +239,77 @@ public class Claim {
         return true;
     }
 
-    public void approve(BigDecimal approvedAmount) {
-        if (approvedAmount == null || approvedAmount.signum() <= 0) {
-            throw new IllegalArgumentException("Approved amount must be positive");
+    /** What the insurer will actually pay: the gross award capped by the sum insured, less the deductible. */
+    public record Settlement(BigDecimal grossAmount, BigDecimal payableAmount, BigDecimal deductibleApplied) {}
+
+    /** First payout cycle: the whole payable amount, or the advance portion of it. */
+    public void approve(Settlement settlement, BigDecimal firstCycleAmount) {
+        transitionTo(ClaimStatus.APPROVED);
+        applySettlement(settlement, firstCycleAmount);
+    }
+
+    /** The payable amount exceeds the approver's limit: park until a second, different approver confirms. */
+    public void parkForSecondApproval(Settlement settlement, BigDecimal firstCycleAmount, String approver) {
+        transitionTo(ClaimStatus.PENDING_SECOND_APPROVAL);
+        applySettlement(settlement, firstCycleAmount);
+        this.firstApprover = approver;
+        this.firstApprovedAt = Instant.now();
+    }
+
+    public void secondApprove(String approver) {
+        requireStatus(ClaimStatus.PENDING_SECOND_APPROVAL);
+        if (firstApprover != null && firstApprover.equals(approver)) {
+            throw new IllegalStateException(
+                    "Four-eyes principle: the second approval must come from a different person than " + firstApprover);
         }
         transitionTo(ClaimStatus.APPROVED);
-        this.approvedAmount = approvedAmount;
+    }
+
+    private void applySettlement(Settlement settlement, BigDecimal firstCycleAmount) {
+        if (firstCycleAmount == null || firstCycleAmount.signum() <= 0) {
+            throw new IllegalArgumentException("Approved amount must be positive");
+        }
+        this.grossApprovedAmount = settlement.grossAmount();
+        this.payableAmount = settlement.payableAmount();
+        this.deductibleApplied = settlement.deductibleApplied();
+        this.approvedAmount = firstCycleAmount;
         this.payoutFailureReason = null;
+    }
+
+    /** An advance is out; finance triggers the remaining payout cycle. */
+    public void payRemainder() {
+        requireStatus(ClaimStatus.PARTIALLY_PAID);
+        BigDecimal remaining = payableAmount.subtract(paidAmount);
+        if (remaining.signum() <= 0) {
+            throw new IllegalStateException("Nothing left to pay for claim " + claimNumber);
+        }
+        transitionTo(ClaimStatus.APPROVED);
+        this.approvedAmount = remaining;
+        this.payoutFailureReason = null;
+    }
+
+    /**
+     * A payout of the current cycle amount was issued. Moves to PAID when the payable amount is
+     * covered, PARTIALLY_PAID after an advance. @return the amount this cycle actually paid out.
+     */
+    public BigDecimal recordPayout(String reference) {
+        BigDecimal cycleAmount = approvedAmount;
+        this.paidAmount = paidAmount.add(cycleAmount);
+        if (payableAmount == null || paidAmount.compareTo(payableAmount) >= 0) {
+            markPaid(reference);
+        } else {
+            transitionTo(ClaimStatus.PARTIALLY_PAID);
+            this.payoutReference = reference;
+        }
+        return cycleAmount;
+    }
+
+    public void flagForFraudInvestigation(java.util.List<String> flags) {
+        this.fraudFlags = flags == null || flags.isEmpty() ? null : java.util.List.copyOf(flags);
+    }
+
+    public boolean isFraudSuspected() {
+        return fraudFlags != null && !fraudFlags.isEmpty();
     }
 
     /** After a failed payout the adjuster can retry, optionally with a corrected amount. */
@@ -235,6 +321,9 @@ public class Claim {
         transitionTo(ClaimStatus.APPROVED);
         if (correctedAmount != null) {
             this.approvedAmount = correctedAmount;
+            if (payableAmount != null) {
+                this.payableAmount = paidAmount.add(correctedAmount);
+            }
         }
         this.payoutFailureReason = null;
     }
@@ -309,6 +398,34 @@ public class Claim {
 
     public BigDecimal getApprovedAmount() {
         return approvedAmount;
+    }
+
+    public BigDecimal getGrossApprovedAmount() {
+        return grossApprovedAmount;
+    }
+
+    public BigDecimal getPayableAmount() {
+        return payableAmount;
+    }
+
+    public BigDecimal getDeductibleApplied() {
+        return deductibleApplied;
+    }
+
+    public BigDecimal getPaidAmount() {
+        return paidAmount;
+    }
+
+    public String getFirstApprover() {
+        return firstApprover;
+    }
+
+    public Instant getFirstApprovedAt() {
+        return firstApprovedAt;
+    }
+
+    public java.util.List<String> getFraudFlags() {
+        return fraudFlags == null ? java.util.List.of() : fraudFlags;
     }
 
     public ClaimStatus getStatus() {

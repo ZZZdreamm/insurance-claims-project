@@ -12,6 +12,7 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 import com.kmultan.claims.domain.ClaimNotFoundException;
 import com.kmultan.claims.domain.InvalidStateTransitionException;
+import com.kmultan.claims.domain.PolicyValidationException;
 import com.kmultan.platform.web.ProblemDetails;
 
 /** Maps domain and access errors to RFC 9457 problem+json responses. */
@@ -26,6 +27,11 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(AccessDeniedException.class)
     ProblemDetail forbidden(AccessDeniedException exception) {
         return ProblemDetails.of(HttpStatus.FORBIDDEN, "Forbidden", exception.getMessage());
+    }
+
+    @ExceptionHandler(PolicyValidationException.class)
+    ProblemDetail policyViolation(PolicyValidationException exception) {
+        return ProblemDetails.of(HttpStatus.UNPROCESSABLE_ENTITY, "Policy validation failed", exception.getMessage());
     }
 
     @ExceptionHandler(IllegalStateException.class)

@@ -27,7 +27,7 @@ const auth = (token, extra = {}) => ({ headers: { ...JSON_HEADERS, Authorization
 export default function (tokens) {
   const failing = __ITER % 6 === 0;
   const submit = http.post(`${BASE}/api/v1/claims`, JSON.stringify({
-    policyNumber: `POL-LC-${__VU}`, plateNumber: `LC ${10000 + ((__VU * 1000 + __ITER) % 89999)}`,
+    policyNumber: `POL-${(__VU % 50) + 1}`, plateNumber: `LC ${10000 + ((__VU * 1000 + __ITER) % 89999)}`,
     incidentDate: new Date().toISOString().slice(0, 10),
     description: ['Cracked windscreen from a stone', 'Rear bumper dented in a car park', 'Engine bay fire after a collision', 'Door and headlight damage from a deer'][__ITER % 4],
     estimatedAmount: 400 + (__ITER % 9) * 350,
