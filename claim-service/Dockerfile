@@ -1,6 +1,6 @@
 # Build from the repository root (multi-module: the service depends on platform-commons / platform-outbox):
 #   docker build -f claim-service/Dockerfile -t claims/claim-service .
-FROM maven:3.9-eclipse-temurin-21 AS build
+FROM maven:3-eclipse-temurin-26 AS build
 WORKDIR /build
 COPY pom.xml .
 COPY .mvn .mvn
