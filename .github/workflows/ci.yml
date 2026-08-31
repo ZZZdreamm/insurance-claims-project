@@ -67,3 +67,57 @@ jobs:
       - uses: azure/setup-helm@v4
       - run: helm lint deploy/helm/claims-platform
       - run: helm template claims deploy/helm/claims-platform > /dev/null
+
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # CRITICAL vulnerabilities with a published fix fail the build; the full HIGH+CRITICAL
+      # report is uploaded for triage. offline-scan avoids Maven Central rate limits.
+      - name: Trivy gate (CRITICAL, fixed only)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln
+          severity: CRITICAL
+          ignore-unfixed: true
+          exit-code: 1
+        env:
+          TRIVY_OFFLINE_SCAN: true
+      - name: Trivy report (HIGH+CRITICAL)
+        if: always()
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: 0
+          format: json
+          output: trivy-report.json
+        env:
+          TRIVY_OFFLINE_SCAN: true
+      - name: Upload vulnerability report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-report
+          path: trivy-report.json
+
+  sbom:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+      - name: Generate CycloneDX SBOM (aggregate)
+        run: mvn -B -DskipTests org.cyclonedx:cyclonedx-maven-plugin:2.9.1:makeAggregateBom
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sbom
+          path: target/bom.json
