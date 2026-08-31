@@ -16,9 +16,30 @@ export const formatDuration = (seconds: number | null | undefined) => {
 export const formatBytes = (bytes: number) => `${(bytes / 1024 / 1024).toFixed(0)} MB`;
 
 const STATUS_LABEL: Record<ClaimStatus, [string, string]> = {
-  SUBMITTED: ['submitted', 'info'], PENDING_REVIEW: ['pending review', 'warn'], APPROVED: ['approved', 'info'],
-  REJECTED: ['rejected', 'bad'], PAID: ['paid', 'ok'], PAYOUT_FAILED: ['payout failed', 'bad'], WITHDRAWN: ['withdrawn', ''],
+  SUBMITTED: ['submitted', 'info'], PENDING_REVIEW: ['pending review', 'warn'],
+  PENDING_SECOND_APPROVAL: ['awaiting 2nd approval', 'warn'], APPROVED: ['approved', 'info'],
+  PARTIALLY_PAID: ['advance paid', 'info'], REJECTED: ['rejected', 'bad'], PAID: ['paid', 'ok'],
+  PAYOUT_FAILED: ['payout failed', 'bad'], WITHDRAWN: ['withdrawn', ''],
 };
+
+const FRAUD_FLAG_LABEL: Record<string, string> = {
+  DUPLICATE_CLAIM: 'another claim for this vehicle within 14 days',
+  EARLY_POLICY_CLAIM: 'incident within 30 days of the policy start',
+  REUSED_PHOTO: 'a photo from this claim appears on another claim',
+  HIGH_CLAIM_FREQUENCY: '3+ claims from this policyholder in 12 months',
+};
+export function FraudBadges({ flags }: { flags: string[] }) {
+  if (!flags || flags.length === 0) return null;
+  return (
+    <span>
+      {flags.map((flag) => (
+        <span key={flag} className="badge bad" style={{ marginRight: 4 }} title={FRAUD_FLAG_LABEL[flag] ?? flag}>
+          🚩 {flag.replaceAll('_', ' ').toLowerCase()}
+        </span>
+      ))}
+    </span>
+  );
+}
 export function StatusBadge({ status }: { status: ClaimStatus }) {
   const [label, tone] = STATUS_LABEL[status] ?? [status, ''];
   return <span className={`badge ${tone}`}>{label}</span>;

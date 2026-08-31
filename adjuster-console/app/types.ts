@@ -1,4 +1,4 @@
-export type ClaimStatus = 'SUBMITTED' | 'PENDING_REVIEW' | 'APPROVED' | 'REJECTED' | 'PAID' | 'PAYOUT_FAILED' | 'WITHDRAWN';
+export type ClaimStatus = 'SUBMITTED' | 'PENDING_REVIEW' | 'PENDING_SECOND_APPROVAL' | 'APPROVED' | 'PARTIALLY_PAID' | 'REJECTED' | 'PAID' | 'PAYOUT_FAILED' | 'WITHDRAWN';
 export type Severity = 'MINOR' | 'MODERATE' | 'SEVERE';
 export type Role = 'POLICYHOLDER' | 'ADJUSTER' | 'FINANCE' | 'ADMIN' | 'SERVICE';
 export const ALL_ROLES: Role[] = ['POLICYHOLDER', 'ADJUSTER', 'FINANCE', 'ADMIN', 'SERVICE'];
@@ -13,6 +13,12 @@ export interface Claim {
   description: string;
   estimatedAmount: number | null;
   approvedAmount: number | null;
+  grossApprovedAmount: number | null;
+  payableAmount: number | null;
+  deductibleApplied: number | null;
+  paidAmount: number;
+  firstApprover: string | null;
+  fraudFlags: string[];
   status: ClaimStatus;
   rejectionReason: string | null;
   payoutFailureReason: string | null;
@@ -35,7 +41,22 @@ export interface Claim {
 
 export interface Page<T> { content: T[]; totalElements: number; totalPages: number; number: number; size: number; }
 export type ReviewScope = 'ALL' | 'UNASSIGNED' | 'MINE';
-export interface ReviewQueueSummary { open: number; unassigned: number; mine: number; escalated: number; severe: number; }
+export interface ReviewQueueSummary { open: number; unassigned: number; mine: number; escalated: number; severe: number; fraudSuspected: number; awaitingSecondApproval: number; }
+
+export interface Policy {
+  policyNumber: string; coverageType: 'OC' | 'AC'; validFrom: string; validTo: string;
+  sumInsured: number; deductible: number; active: boolean;
+}
+export interface ClaimPayment { id: string; amount: number; paymentType: 'ADVANCE' | 'FINAL'; reference: string | null; issuedAt: string; }
+export interface ReserveExposure { severity: string; claims: number; totalReserved: number; }
+export interface ReserveSummary { openClaims: number; totalOpen: number; totalSettled: number; bySeverity: ReserveExposure[]; }
+
+export interface CustomerCommunication { id: string; type: string; subject: string; body: string; sentAt: string; }
+export interface SubrogationCase {
+  id: string; claimId: string; liableParty: string; expectedAmount: number; recoveredAmount: number;
+  status: 'OPEN' | 'RECOVERED' | 'WRITTEN_OFF'; writeOffReason: string | null; openedBy: string; openedAt: string; updatedAt: string;
+}
+export interface RecoverySummary { openCases: number; expectedOpen: number; totalRecovered: number; }
 
 export interface SubmitClaimRequest {
   policyNumber: string; plateNumber: string; incidentDate: string; description: string; estimatedAmount: number | null;

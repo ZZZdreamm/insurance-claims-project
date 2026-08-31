@@ -6,7 +6,7 @@ import { api } from '../api';
 import { RequireRole } from '../auth';
 import { Shell } from '../components/Shell';
 import { Alert, Stat, StatusBadge, formatDateTime, formatMoney, useErrorState } from '../components/ui';
-import type { Claim, LedgerSummary } from '../types';
+import type { Claim, LedgerSummary, RecoverySummary, ReserveSummary, SubrogationCase } from '../types';
 
 function FailedRow({ claim, onChange, onError }: { claim: Claim; onChange: () => Promise<void>; onError: (error: unknown) => void }) {
   const [amount, setAmount] = useState<string>(claim.approvedAmount?.toString() ?? '');
@@ -26,12 +26,21 @@ export default function Finance() {
   const [approved, setApproved] = useState<Claim[]>([]);
   const [paid, setPaid] = useState<Claim[]>([]);
   const [ledger, setLedger] = useState<LedgerSummary | null>(null);
+  const [partial, setPartial] = useState<Claim[]>([]);
+  const [reserves, setReserves] = useState<ReserveSummary | null>(null);
+  const [recoveries, setRecoveries] = useState<SubrogationCase[]>([]);
+  const [recoverySummary, setRecoverySummary] = useState<RecoverySummary | null>(null);
   const [ledgerNote, setLedgerNote] = useState<string | null>(null);
   const [error, setError, clearError] = useErrorState();
   const refresh = useCallback(async () => {
     try {
-      const [failedPage, approvedPage, paidPage] = await Promise.all([api.claims('PAYOUT_FAILED'), api.claims('APPROVED'), api.claims('PAID')]);
-      setFailed(failedPage.content); setApproved(approvedPage.content); setPaid(paidPage.content); clearError();
+      const [failedPage, approvedPage, paidPage, partialPage, reserveSummary] = await Promise.all([
+        api.claims('PAYOUT_FAILED'), api.claims('APPROVED'), api.claims('PAID'), api.claims('PARTIALLY_PAID'), api.reserveSummary(),
+      ]);
+      setFailed(failedPage.content); setApproved(approvedPage.content); setPaid(paidPage.content);
+      setPartial(partialPage.content); setReserves(reserveSummary); clearError();
+      api.openSubrogations().then(setRecoveries).catch(() => setRecoveries([]));
+      api.recoverySummary().then(setRecoverySummary).catch(() => setRecoverySummary(null));
       api.ledger().then((summary) => { setLedger(summary); setLedgerNote(null); }).catch((candidate: Error) => setLedgerNote(candidate.message));
     } catch (candidate) { setError(candidate); }
   }, [setError, clearError]);
@@ -46,6 +55,20 @@ export default function Finance() {
           <Stat label="Paid (claims)" value={paid.length} hint={formatMoney(paid.reduce((sum, claim) => sum + (claim.approvedAmount ?? 0), 0))} />
           <Stat label="Ledger: transfers" value={ledger ? ledger.payoutsIssued : '—'} hint={ledger ? `${formatMoney(ledger.totalIssued)} · ${ledger.payoutsFailed} failed · ${ledger.payoutsReversed} reversed` : ledgerNote ?? '…'} />
         </div>
+        <div className="card" style={{ marginBottom: '1rem' }}>
+          <h2>Claims reserves (open exposure)</h2>
+          {reserves ? (
+            <div className="grid cols-4">
+              <Stat label="Open claims" value={reserves.openClaims} />
+              <Stat label="Total reserved" value={formatMoney(reserves.totalOpen)} hint="expected remaining cost" />
+              <Stat label="Settled to date" value={formatMoney(reserves.totalSettled)} />
+              <div className="card stat"><div className="label">By severity</div><div className="small">
+                {reserves.bySeverity.map((row) => <div key={row.severity}>{row.severity}: {row.claims} · {formatMoney(row.totalReserved)}</div>)}
+                {reserves.bySeverity.length === 0 && <span className="faint">no open reserves</span>}
+              </div></div>
+            </div>
+          ) : <p className="muted">Loading…</p>}
+        </div>
         {error && <Alert kind="error">{error}</Alert>}
         <div className="card table-wrap">
           <h2>Failed payouts</h2>
@@ -54,6 +77,35 @@ export default function Finance() {
             <tbody>
               {failed.map((claim) => <FailedRow key={claim.id} claim={claim} onChange={refresh} onError={setError} />)}
               {failed.length === 0 && <tr><td colSpan={4} className="empty">No failed payouts.</td></tr>}
+            </tbody>
+          </table>
+        </div>
+        <div className="card table-wrap">
+          <h2>Advances awaiting the remainder</h2>
+          <table>
+            <thead><tr><th>Claim</th><th className="num">Payable</th><th className="num">Paid so far</th><th className="num">Remaining</th><th></th></tr></thead>
+            <tbody>
+              {partial.map((claim) => (
+                <tr key={claim.id}>
+                  <td><Link href={`/claims/${claim.id}`}><strong>{claim.claimNumber}</strong></Link><br /><span className="muted small">{claim.policyNumber}</span></td>
+                  <td className="num">{formatMoney(claim.payableAmount)}</td>
+                  <td className="num">{formatMoney(claim.paidAmount)}</td>
+                  <td className="num"><strong>{formatMoney((claim.payableAmount ?? 0) - claim.paidAmount)}</strong></td>
+                  <td><button className="btn sm primary" onClick={() => api.payRemainder(claim.id).then(refresh).catch(setError)}>Pay remainder</button></td>
+                </tr>
+              ))}
+              {partial.length === 0 && <tr><td colSpan={5} className="empty">No advances waiting.</td></tr>}
+            </tbody>
+          </table>
+        </div>
+        <div className="card table-wrap">
+          <h2>Open recoveries (subrogation)</h2>
+          {recoverySummary && <p className="muted small">{recoverySummary.openCases} open · {formatMoney(recoverySummary.expectedOpen)} expected · {formatMoney(recoverySummary.totalRecovered)} recovered to date</p>}
+          <table>
+            <thead><tr><th>Claim</th><th>Liable party</th><th className="num">Expected</th><th className="num">Recovered</th><th>Record</th></tr></thead>
+            <tbody>
+              {recoveries.map((recovery) => <RecoveryRow key={recovery.id} recovery={recovery} onChange={refresh} onError={setError} />)}
+              {recoveries.length === 0 && <tr><td colSpan={5} className="empty">No open recovery cases.</td></tr>}
             </tbody>
           </table>
         </div>
@@ -92,5 +144,21 @@ export default function Finance() {
         </div>
       </Shell>
     </RequireRole>
+  );
+}
+
+function RecoveryRow({ recovery, onChange, onError }: { recovery: SubrogationCase; onChange: () => Promise<void>; onError: (error: unknown) => void }) {
+  const [amount, setAmount] = useState('');
+  return (
+    <tr>
+      <td><Link href={`/claims/${recovery.claimId}`} className="mono small">{recovery.claimId.slice(0, 8)}…</Link><br /><span className="muted small">opened by {recovery.openedBy}</span></td>
+      <td>{recovery.liableParty}</td>
+      <td className="num">{formatMoney(recovery.expectedAmount)}</td>
+      <td className="num">{formatMoney(recovery.recoveredAmount)}</td>
+      <td><div className="actions">
+        <input className="inline-input" type="number" min="0.01" step="0.01" value={amount} onChange={(event) => setAmount(event.target.value)} />
+        <button className="btn sm primary" disabled={!Number(amount)} onClick={() => api.recordRecovery(recovery.id, Number(amount)).then(onChange).catch(onError)}>Record</button>
+      </div></td>
+    </tr>
   );
 }

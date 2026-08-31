@@ -9,7 +9,10 @@ import type { Role } from '../types';
 
 interface NavItem { href: string; label: string; roles: Role[]; icon: string; }
 const NAV: { section: string; items: NavItem[] }[] = [
-  { section: 'Policyholder', items: [{ href: '/claims', label: 'My claims', roles: ['POLICYHOLDER', 'ADMIN'], icon: '🚗' }] },
+  { section: 'Policyholder', items: [
+    { href: '/claims', label: 'My claims', roles: ['POLICYHOLDER', 'ADMIN'], icon: '🚗' },
+    { href: '/policies', label: 'My policies', roles: ['POLICYHOLDER', 'ADMIN'], icon: '📄' },
+  ] },
   { section: 'Claims handling', items: [
     { href: '/reviews', label: 'Review queue', roles: ['ADJUSTER', 'ADMIN'], icon: '📋' },
     { href: '/search', label: 'Search', roles: ['ADJUSTER', 'FINANCE', 'ADMIN'], icon: '🔎' },

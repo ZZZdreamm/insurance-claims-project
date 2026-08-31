@@ -10,6 +10,7 @@ import type { Claim } from '../types';
 export function ClaimActions({ claim, onChange }: { claim: Claim; onChange: () => Promise<void> }) {
   const { session, has } = useAuth();
   const [amount, setAmount] = useState<string>((claim.approvedAmount ?? claim.estimatedAmount)?.toString() ?? '');
+  const [advance, setAdvance] = useState<string>('');
   const [reason, setReason] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -32,7 +33,10 @@ export function ClaimActions({ claim, onChange }: { claim: Claim; onChange: () =
       buttons.push(
         <span key="approve" className="actions">
           <input className="inline-input" type="number" min="0.01" step="0.01" value={amount} onChange={(event) => setAmount(event.target.value)} />
-          <button className="btn primary" disabled={busy} onClick={() => run(() => api.approve(claim.id, Number(amount)))}>Approve amount</button>
+          <select className="inline-input" value={advance} onChange={(event) => setAdvance(event.target.value)} title="Pay only a share now; finance releases the remainder">
+            <option value="">full payout</option><option value="25">25% advance</option><option value="50">50% advance</option>
+          </select>
+          <button className="btn primary" disabled={busy} onClick={() => run(() => api.approve(claim.id, Number(amount), advance ? Number(advance) : undefined))}>Approve amount</button>
         </span>,
         <span key="reject" className="actions">
           <input className="inline-input" style={{ width: 200 }} placeholder="rejection reason" value={reason} onChange={(event) => setReason(event.target.value)} />
@@ -43,6 +47,24 @@ export function ClaimActions({ claim, onChange }: { claim: Claim; onChange: () =
     } else {
       buttons.push(<span key="held" className="muted">Review held by <strong>{claim.reviewAssignee}</strong></span>);
     }
+  }
+  if (claim.status === 'PENDING_SECOND_APPROVAL' && isAdjuster) {
+    const wasFirstApprover = claim.firstApprover === me && !has('ADMIN');
+    buttons.push(
+      <span key="second" className="actions">
+        <span className="muted small">payable {claim.payableAmount} · first approval by <strong>{claim.firstApprover}</strong></span>
+        {wasFirstApprover
+          ? <span className="muted">Four-eyes: a different adjuster must confirm.</span>
+          : <button className="btn primary" disabled={busy} onClick={() => run(() => api.secondApprove(claim.id))}>Confirm (second approval)</button>}
+      </span>,
+    );
+  }
+  if (claim.status === 'PARTIALLY_PAID' && has('FINANCE', 'ADMIN')) {
+    buttons.push(
+      <button key="remainder" className="btn primary" disabled={busy} onClick={() => run(() => api.payRemainder(claim.id))}>
+        Pay remainder ({((claim.payableAmount ?? 0) - claim.paidAmount).toFixed(2)})
+      </button>,
+    );
   }
   if (claim.status === 'PAYOUT_FAILED' && has('FINANCE', 'ADMIN')) {
     buttons.push(

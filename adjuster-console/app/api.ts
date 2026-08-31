@@ -1,4 +1,5 @@
 import type {
+  Policy, ClaimPayment, ReserveSummary, CustomerCommunication, SubrogationCase, RecoverySummary,
   Claim, ClaimEventLogEntry, ClaimStatus, LedgerEntry, LedgerSummary, LoginResponse, Page, ReplayResult, ReviewQueueSummary, ReviewScope, Role,
   SearchResult, Severity, Statistics, SubmitClaimRequest, Usage, UserAccount, UserInfo,
 } from './types';
@@ -70,6 +71,25 @@ export const api = {
     photos.forEach((file) => form.append('photos', file));
     return call<Claim>(CLAIM_BASE, '/api/v1/claims', { method: 'POST', body: form, headers: { 'Idempotency-Key': crypto.randomUUID() } });
   },
+  myPolicies: () => call<Policy[]>(CLAIM_BASE, '/api/v1/policies/mine'),
+  allPolicies: () => call<Policy[]>(CLAIM_BASE, '/api/v1/policies'),
+  payments: (id: string) => call<ClaimPayment[]>(CLAIM_BASE, `/api/v1/claims/${id}/payments`),
+  payRemainder: (id: string) => call<Claim>(CLAIM_BASE, `/api/v1/claims/${id}/pay-remainder`, { method: 'POST' }),
+  reserveSummary: () => call<ReserveSummary>(CLAIM_BASE, '/api/v1/reserves/summary'),
+  communications: (id: string) => call<CustomerCommunication[]>(CLAIM_BASE, `/api/v1/claims/${id}/communications`),
+  decisionDocumentBlob: async (id: string): Promise<string> => {
+    const session = loadSession();
+    const response = await fetch(`${CLAIM_BASE}/api/v1/claims/${id}/decision-document`, { headers: session ? { Authorization: `Bearer ${session.token}` } : {} });
+    if (!response.ok) throw new Error('The decision letter is available once a decision has been made.');
+    return URL.createObjectURL(await response.blob());
+  },
+  subrogationOf: (claimId: string) => call<SubrogationCase>(CLAIM_BASE, `/api/v1/claims/${claimId}/subrogation`),
+  openSubrogation: (claimId: string, liableParty: string, expectedAmount: number) =>
+    call<SubrogationCase>(CLAIM_BASE, `/api/v1/claims/${claimId}/subrogation`, json('POST', { liableParty, expectedAmount })),
+  recordRecovery: (id: string, amount: number) => call<SubrogationCase>(CLAIM_BASE, `/api/v1/subrogations/${id}/recoveries`, json('POST', { amount })),
+  writeOffSubrogation: (id: string, reason: string) => call<SubrogationCase>(CLAIM_BASE, `/api/v1/subrogations/${id}/write-off`, json('POST', { reason })),
+  openSubrogations: () => call<SubrogationCase[]>(CLAIM_BASE, '/api/v1/subrogations'),
+  recoverySummary: () => call<RecoverySummary>(CLAIM_BASE, '/api/v1/subrogations/summary'),
   withdraw: (id: string) => call<Claim>(CLAIM_BASE, `/api/v1/claims/${id}/withdraw`, { method: 'POST' }),
   retryPayout: (id: string, approvedAmount?: number) => call<Claim>(CLAIM_BASE, `/api/v1/claims/${id}/retry-payout`, json('POST', approvedAmount ? { approvedAmount } : {})),
   photoBlob: async (claimId: string, photoId: string): Promise<string> => {
@@ -79,11 +99,12 @@ export const api = {
   },
 
   // reviews (adjuster)
-  reviews: (options: { scope?: ReviewScope; severity?: Severity | ''; escalatedOnly?: boolean; page?: number; size?: number } = {}) => {
+  reviews: (options: { scope?: ReviewScope; severity?: Severity | ''; escalatedOnly?: boolean; fraudOnly?: boolean; page?: number; size?: number } = {}) => {
     const params = new URLSearchParams();
     if (options.scope) params.set('scope', options.scope);
     if (options.severity) params.set('severity', options.severity);
     if (options.escalatedOnly) params.set('escalatedOnly', 'true');
+    if (options.fraudOnly) params.set('fraudOnly', 'true');
     params.set('page', String(options.page ?? 0));
     params.set('size', String(options.size ?? 20));
     return call<Page<Claim>>(CLAIM_BASE, `/api/v1/reviews?${params.toString()}`);
@@ -91,7 +112,10 @@ export const api = {
   reviewSummary: () => call<ReviewQueueSummary>(CLAIM_BASE, '/api/v1/reviews/summary'),
   claimReview: (id: string) => call<Claim>(CLAIM_BASE, `/api/v1/reviews/${id}/claim`, { method: 'POST' }),
   unclaimReview: (id: string) => call<Claim>(CLAIM_BASE, `/api/v1/reviews/${id}/unclaim`, { method: 'POST' }),
-  approve: (id: string, approvedAmount: number) => call<Claim>(CLAIM_BASE, `/api/v1/reviews/${id}/approve`, json('POST', { approvedAmount })),
+  approve: (id: string, approvedAmount: number, advancePercent?: number) =>
+    call<Claim>(CLAIM_BASE, `/api/v1/reviews/${id}/approve`, json('POST', advancePercent ? { approvedAmount, advancePercent } : { approvedAmount })),
+  secondApprovals: () => call<Page<Claim>>(CLAIM_BASE, '/api/v1/reviews/second-approvals?size=100'),
+  secondApprove: (id: string) => call<Claim>(CLAIM_BASE, `/api/v1/reviews/${id}/second-approval`, { method: 'POST' }),
   reject: (id: string, reason: string) => call<Claim>(CLAIM_BASE, `/api/v1/reviews/${id}/reject`, json('POST', { reason })),
 
   // search-service (staff)

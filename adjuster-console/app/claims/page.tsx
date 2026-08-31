@@ -6,10 +6,19 @@ import { api } from '../api';
 import { RequireRole } from '../auth';
 import { Shell } from '../components/Shell';
 import { Alert, Photos, SeverityBadge, StatusBadge, formatDateTime, formatMoney, useErrorState } from '../components/ui';
-import type { Claim } from '../types';
+import type { Claim, Policy } from '../types';
 
 function SubmitForm({ onDone, onError }: { onDone: () => void; onError: (error: unknown) => void }) {
-  const [policy, setPolicy] = useState('POL-2026-0001');
+  const [policies, setPolicies] = useState<Policy[]>([]);
+  const [policy, setPolicy] = useState('');
+  useEffect(() => {
+    api.myPolicies().then((mine) => {
+      setPolicies(mine);
+      const firstActive = mine.find((candidate) => candidate.active) ?? mine[0];
+      if (firstActive) setPolicy((current) => current || firstActive.policyNumber);
+    }).catch(() => {});
+  }, []);
+  const selected = policies.find((candidate) => candidate.policyNumber === policy);
   const [plate, setPlate] = useState('WA 12345');
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
   const [description, setDescription] = useState('');
@@ -32,7 +41,20 @@ function SubmitForm({ onDone, onError }: { onDone: () => void; onError: (error: 
     <form className="card" onSubmit={submit}>
       <h2>Report a new claim</h2>
       <div className="form-grid">
-        <label className="field">Policy number<input value={policy} onChange={(event) => setPolicy(event.target.value)} required /></label>
+        <label className="field">Policy
+          {policies.length > 0 ? (
+            <select value={policy} onChange={(event) => setPolicy(event.target.value)} required>
+              {policies.map((candidate) => (
+                <option key={candidate.policyNumber} value={candidate.policyNumber} disabled={!candidate.active}>
+                  {candidate.policyNumber} ({candidate.coverageType}{candidate.active ? '' : ', expired'})
+                </option>
+              ))}
+            </select>
+          ) : (
+            <input value={policy} onChange={(event) => setPolicy(event.target.value)} required placeholder="policy number" />
+          )}
+          {selected && <span className="muted small">sum insured {selected.sumInsured.toLocaleString()} · deductible {selected.deductible.toLocaleString()}</span>}
+        </label>
         <label className="field">Plate number<input value={plate} onChange={(event) => setPlate(event.target.value)} required /></label>
         <label className="field">Incident date<input type="date" value={date} onChange={(event) => setDate(event.target.value)} required /></label>
         <label className="field">Estimated amount (PLN)<input type="number" min="0" step="0.01" value={amount} onChange={(event) => setAmount(event.target.value)} /></label>
