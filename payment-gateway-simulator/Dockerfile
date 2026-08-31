@@ -6,7 +6,7 @@ RUN mvn -B -q dependency:go-offline || true
 COPY payment-gateway-simulator/src src
 RUN mvn -B -q -DskipTests package
 
-FROM eclipse-temurin:21-jre-alpine
+FROM eclipse-temurin:25-jre-alpine
 WORKDIR /app
 RUN addgroup -S app && adduser -S app -G app
 USER app
