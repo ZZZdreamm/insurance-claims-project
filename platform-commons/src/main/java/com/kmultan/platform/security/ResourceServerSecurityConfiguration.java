@@ -45,6 +45,11 @@ public class ResourceServerSecurityConfiguration {
         "/actuator/health/**", "/actuator/prometheus", "/actuator/info"
     };
 
+    /** OpenAPI documentation is public in this demo deployment; gate it at the ingress in a real one. */
+    private static final String[] OPENAPI_DOCUMENTATION_ENDPOINTS = {
+        "/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html"
+    };
+
     /** Browser clients (the console) live on another origin in development; every API exposes the same headers. */
     @Bean
     @ConditionalOnMissingBean
@@ -102,6 +107,8 @@ public class ResourceServerSecurityConfiguration {
                     registry.requestMatchers(HttpMethod.OPTIONS, "/**")
                             .permitAll()
                             .requestMatchers(PUBLIC_ACTUATOR_ENDPOINTS)
+                            .permitAll()
+                            .requestMatchers(OPENAPI_DOCUMENTATION_ENDPOINTS)
                             .permitAll();
                     rules.customize(registry);
                     registry.anyRequest().denyAll();
