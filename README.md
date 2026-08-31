@@ -65,6 +65,9 @@ service-account token).
 
 ## 3. Design decisions and their trade-offs
 
+The full, immutable records live in [docs/adr/](docs/adr/README.md) — one numbered ADR per
+decision, with context and consequences. The highlights:
+
 These are the conversations the code is built to support. Each one names the alternative and when it
 would be the better choice.
 
@@ -195,11 +198,11 @@ docker compose --profile ci up -d --build                         # + Jenkins
 | Address | What | Profile |
 |---|---|---|
 | `localhost:3000` | console (login: see roles above) | `console` |
-| `localhost:8080` | claim-service API (through the nginx gateway), `/actuator/health`, `/actuator/prometheus` | `core` |
-| `localhost:8082` | payout-service API (through the nginx gateway) | `core` |
+| `localhost:8080` | claim-service API (through the nginx gateway), `/actuator/health`, `/actuator/prometheus`, `/swagger-ui.html` | `core` |
+| `localhost:8082` | payout-service API (through the nginx gateway), `/swagger-ui.html` | `core` |
 | `localhost:8083` | payment-gateway-simulator (`POST /transfers`) | `core` |
 | `localhost:8000` | assessment-service (`/assess`, `/health`, `/metrics`) | `core` |
-| `localhost:8081` | search-service API | `search` |
+| `localhost:8081` | search-service API, `/swagger-ui.html` | `search` |
 | `localhost:5601` | Kibana with data views `claims` and `claim-events` | `search` |
 | `localhost:3001` | Grafana (dashboard *Claims platform*, Explore → Tempo / Loki) | `observability` |
 | `localhost:8090` | Jenkins (`admin`/`admin`), job `claims-platform` | `ci` |
@@ -297,6 +300,20 @@ Shared fixtures come from `platform-commons`' test-jar: `TestJwtTokenFactory` mi
 claim-service does; `KafkaTestConsumer` accumulates records per key for `await()` assertions. Tests use
 the same deterministic rules as the real stub gateway: amounts ending in `.99` fail at the provider,
 amounts over 50 000 cannot be reserved, descriptions containing `NOASSESS` get no triage.
+
+### Quality gates in every build
+
+`mvn verify` fails on any of: unformatted code (Spotless/Palantir), a Checkstyle violation,
+an [Error Prone](https://errorprone.info) bug pattern at compile time, a broken architecture
+rule (`ArchitectureTest` — ArchUnit: domain depends on nothing above it, application never
+touches adapters, no package cycles, controllers only in `api`, `@Configuration` naming),
+line coverage below the JaCoCo gate (claim 85 %, payout 85 %, search 80 % — the platform
+libraries are exercised through the services' integration tests), or a Maven Enforcer rule
+(JDK 21+, Maven 3.8.1+, no duplicate dependency declarations). CI additionally runs a
+Trivy scan (CRITICAL vulnerabilities with a published fix fail the build; the HIGH report is
+uploaded for triage), publishes a CycloneDX SBOM, and Dependabot keeps Maven/npm/pip/Docker
+/Actions dependencies fresh. Each service publishes its OpenAPI contract at `/v3/api-docs`
+(Swagger UI at `/swagger-ui.html`), verified unauthenticated by `OpenApiDocumentationIT`.
 
 ## 9. Performance baselines
 
