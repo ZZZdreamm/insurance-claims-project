@@ -5,7 +5,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { api } from '../api';
 import { RequireRole, useAuth } from '../auth';
 import { Shell } from '../components/Shell';
-import { Alert, FraudBadges, Photos, SeverityBadge, Stat, formatDateTime, formatMoney, useErrorState } from '../components/ui';
+import { Alert, FraudBadges, Pager, Photos, SeverityBadge, Stat, formatDateTime, formatMoney, useDebounced, useErrorState } from '../components/ui';
 import type { Claim, Page, ReviewQueueSummary, ReviewScope, Severity } from '../types';
 
 const PAGE_SIZE = 20;
@@ -51,22 +51,28 @@ export default function Reviews() {
   const [severity, setSeverity] = useState<Severity | ''>('');
   const [escalatedOnly, setEscalatedOnly] = useState(false);
   const [fraudOnly, setFraudOnly] = useState(false);
-  const [secondApprovals, setSecondApprovals] = useState<Claim[]>([]);
+  const [query, setQuery] = useState('');
+  const q = useDebounced(query);
+  const [secondQuery, setSecondQuery] = useState('');
+  const secondQ = useDebounced(secondQuery);
+  const [secondApprovals, setSecondApprovals] = useState<Page<Claim> | null>(null);
+  const [secondPage, setSecondPage] = useState(0);
   const [pageNumber, setPageNumber] = useState(0);
   const [error, setError, clearError] = useErrorState();
 
   const refresh = useCallback(async () => {
     try {
       const [nextPage, nextSummary, second] = await Promise.all([
-        api.reviews({ scope, severity, escalatedOnly, fraudOnly, page: pageNumber, size: PAGE_SIZE }),
+        api.reviews({ scope, severity, escalatedOnly, fraudOnly, q, page: pageNumber, size: PAGE_SIZE }),
         api.reviewSummary(),
-        api.secondApprovals(),
+        api.secondApprovals(secondPage, 25, secondQ),
       ]);
-      setPage(nextPage); setSummary(nextSummary); setSecondApprovals(second.content); clearError();
+      setPage(nextPage); setSummary(nextSummary); setSecondApprovals(second); clearError();
     } catch (candidate) { setError(candidate); }
-  }, [scope, severity, escalatedOnly, fraudOnly, pageNumber, setError, clearError]);
+  }, [scope, severity, escalatedOnly, fraudOnly, q, secondQ, pageNumber, secondPage, setError, clearError]);
   useEffect(() => { void refresh(); const timer = setInterval(() => void refresh(), 10000); return () => clearInterval(timer); }, [refresh]);
-  useEffect(() => { setPageNumber(0); }, [scope, severity, escalatedOnly, fraudOnly]);
+  useEffect(() => { setPageNumber(0); }, [scope, severity, escalatedOnly, fraudOnly, q]);
+  useEffect(() => { setSecondPage(0); }, [secondQ]);
 
   const totalPages = page?.totalPages ?? 0;
   return (
@@ -85,6 +91,9 @@ export default function Reviews() {
                 <button key={value} className={`btn sm ${scope === value ? 'primary' : ''}`} onClick={() => setScope(value)}>{label}</button>))}
             </div>
           </div>
+          <label className="field">Find
+            <input className="inline-input" style={{ width: 220 }} placeholder="🔍 claim no., plate, description…" value={query} onChange={(event) => setQuery(event.target.value)} />
+          </label>
           <label className="field">Severity<select value={severity} onChange={(event) => setSeverity(event.target.value as Severity | '')}><option value="">any</option><option value="MINOR">MINOR</option><option value="MODERATE">MODERATE</option><option value="SEVERE">SEVERE</option></select></label>
           <label className="field">&nbsp;<span className="actions"><input type="checkbox" checked={escalatedOnly} onChange={(event) => setEscalatedOnly(event.target.checked)} /> past SLA only</span></label>
           <label className="field">&nbsp;<span className="actions"><input type="checkbox" checked={fraudOnly} onChange={(event) => setFraudOnly(event.target.checked)} /> 🚩 fraud flags only</span></label>
@@ -99,25 +108,23 @@ export default function Reviews() {
               {page && page.content.length === 0 && <tr><td colSpan={6} className="empty">No claims in this view.</td></tr>}
             </tbody>
           </table>
-          {totalPages > 1 && (
-            <div className="actions" style={{ marginTop: '0.8rem', justifyContent: 'flex-end' }}>
-              <button className="btn sm" disabled={pageNumber === 0} onClick={() => setPageNumber(pageNumber - 1)}>‹ Previous</button>
-              <span className="muted small">{pageNumber + 1} / {totalPages}</span>
-              <button className="btn sm" disabled={pageNumber + 1 >= totalPages} onClick={() => setPageNumber(pageNumber + 1)}>Next ›</button>
-            </div>
-          )}
+          <Pager page={pageNumber} totalPages={totalPages} onPage={setPageNumber} />
         </div>
-        {secondApprovals.length > 0 && (
+        {secondApprovals && (secondApprovals.content.length > 0 || secondQ) && (
           <div className="card table-wrap" style={{ marginTop: '1rem' }}>
             <h2>Awaiting second approval (four-eyes)</h2>
+            <div className="toolbar">
+              <input className="inline-input" style={{ width: 220 }} placeholder="🔍 claim no., plate…" value={secondQuery} onChange={(event) => setSecondQuery(event.target.value)} />
+            </div>
             <table>
               <thead><tr><th>Claim</th><th className="num">Payable</th><th>First approver</th><th>Parked</th><th></th></tr></thead>
               <tbody>
-                {secondApprovals.map((claim) => (
+                {secondApprovals.content.map((claim) => (
                   <SecondApprovalRow key={claim.id} claim={claim} onChange={refresh} onError={setError} />
                 ))}
               </tbody>
             </table>
+            <Pager page={secondPage} totalPages={secondApprovals.totalPages} onPage={setSecondPage} />
           </div>
         )}
       </Shell>

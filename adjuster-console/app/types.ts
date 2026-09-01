@@ -51,6 +51,7 @@ export interface ClaimPayment { id: string; amount: number; paymentType: 'ADVANC
 export interface ReserveExposure { severity: string; claims: number; totalReserved: number; }
 export interface ReserveSummary { openClaims: number; totalOpen: number; totalSettled: number; bySeverity: ReserveExposure[]; }
 
+export interface FraudContext { duplicateCandidates: Claim[]; duplicateTotal: number; ownerClaims: Claim[]; ownerClaimTotal: number; }
 export interface CustomerCommunication { id: string; type: string; subject: string; body: string; sentAt: string; }
 export interface SubrogationCase {
   id: string; claimId: string; liableParty: string; expectedAmount: number; recoveredAmount: number;
@@ -83,7 +84,8 @@ export interface LedgerEntry {
   payoutAmount: number | null; payoutStatus: 'PENDING' | 'ISSUED' | 'REVERSED' | 'FAILED' | null; reference: string | null; reason: string | null; updatedAt: string;
 }
 export interface LedgerSummary {
-  reservations: number; payoutsIssued: number; payoutsFailed: number; payoutsReversed: number; totalIssued: number; totalReserved: number; entries: LedgerEntry[];
+  reservations: number; payoutsIssued: number; payoutsFailed: number; payoutsReversed: number; totalIssued: number; totalReserved: number;
+  entries: LedgerEntry[]; page: number; totalPages: number; totalElements: number;
 }
 export interface ReplayResult { topic: string; replayed: number; }
 

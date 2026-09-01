@@ -2,7 +2,6 @@ package com.kmultan.claims.api;
 
 import java.math.BigDecimal;
 import java.time.Instant;
-import java.util.List;
 import java.util.UUID;
 
 import jakarta.validation.Valid;
@@ -96,10 +95,11 @@ public class SubrogationController {
 
     @GetMapping("/subrogations")
     @PreAuthorize("hasAnyRole('FINANCE', 'ADMIN')")
-    public List<SubrogationResponse> openCases() {
-        return subrogationService.openCases().stream()
-                .map(SubrogationResponse::from)
-                .toList();
+    public org.springframework.data.domain.Page<SubrogationResponse> openCases(
+            @org.springframework.web.bind.annotation.RequestParam(required = false) String q,
+            @org.springframework.data.web.PageableDefault(size = 25, sort = "openedAt")
+                    org.springframework.data.domain.Pageable pageable) {
+        return subrogationService.openCases(q, pageable).map(SubrogationResponse::from);
     }
 
     @GetMapping("/subrogations/summary")

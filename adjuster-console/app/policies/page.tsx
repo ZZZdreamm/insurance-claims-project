@@ -9,6 +9,7 @@ import type { Policy } from '../types';
 
 export default function MyPolicies() {
   const [policies, setPolicies] = useState<Policy[]>([]);
+  const [filter, setFilter] = useState('');
   const [error, setError, clearError] = useErrorState();
   const refresh = useCallback(async () => {
     try { setPolicies(await api.myPolicies()); clearError(); } catch (candidate) { setError(candidate); }
@@ -20,10 +21,13 @@ export default function MyPolicies() {
       <Shell title="My policies" subtitle="Coverage you can claim against — sums insured, deductibles and validity">
         {error && <Alert kind="error">{error}</Alert>}
         <div className="card table-wrap">
+          <div className="toolbar">
+            <input className="inline-input" style={{ width: 240 }} placeholder="🔍 policy number, coverage…" value={filter} onChange={(event) => setFilter(event.target.value)} />
+          </div>
           <table>
             <thead><tr><th>Policy</th><th>Coverage</th><th>Valid</th><th className="num">Sum insured</th><th className="num">Deductible</th><th>Status</th></tr></thead>
             <tbody>
-              {policies.map((policy) => (
+              {policies.filter((policy) => (policy.policyNumber + ' ' + policy.coverageType).toLowerCase().includes(filter.toLowerCase())).map((policy) => (
                 <tr key={policy.policyNumber}>
                   <td><strong className="mono">{policy.policyNumber}</strong></td>
                   <td><span className="badge info">{policy.coverageType}</span> <span className="muted small">{policy.coverageType === 'AC' ? 'comprehensive' : 'third-party liability'}</span></td>

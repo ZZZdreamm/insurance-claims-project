@@ -79,8 +79,13 @@ public class SubrogationService {
     }
 
     @Transactional(readOnly = true)
-    public List<SubrogationCase> openCases() {
-        return subrogations.findByStatusOrderByOpenedAt(SubrogationCase.Status.OPEN);
+    public org.springframework.data.domain.Page<SubrogationCase> openCases(
+            String queryText, org.springframework.data.domain.Pageable pageable) {
+        if (queryText != null && !queryText.isBlank()) {
+            return subrogations.findByStatusAndLiablePartyContainingIgnoreCase(
+                    SubrogationCase.Status.OPEN, queryText.trim(), pageable);
+        }
+        return subrogations.findByStatus(SubrogationCase.Status.OPEN, pageable);
     }
 
     public record RecoverySummary(long openCases, BigDecimal expectedOpen, BigDecimal totalRecovered) {}

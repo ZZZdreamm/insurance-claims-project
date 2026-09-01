@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation';
 import { api } from '../api';
 import { RequireRole, useAuth } from '../auth';
 import { Shell } from '../components/Shell';
-import { Alert, StatusBadge, formatDateTime, formatMoney, useErrorState } from '../components/ui';
+import { Alert, Pager, StatusBadge, formatDateTime, formatMoney, useErrorState } from '../components/ui';
 import type { ClaimStatus, SearchResult } from '../types';
 
 const STATUSES: ClaimStatus[] = ['SUBMITTED', 'PENDING_REVIEW', 'APPROVED', 'REJECTED', 'PAID', 'PAYOUT_FAILED', 'WITHDRAWN'];
@@ -17,14 +17,15 @@ export default function Search() {
   const [result, setResult] = useState<SearchResult | null>(null);
   const [error, setError, clearError] = useErrorState();
   const [busy, setBusy] = useState(false);
+  const [page, setPage] = useState(0);
   const { has } = useAuth();
   const router = useRouter();
   const takeAndReview = async (claimId: string) => {
     try { await api.claimReview(claimId); router.push(`/claims/${claimId}`); } catch (candidate) { setError(candidate); }
   };
-  const run = async (event?: FormEvent) => {
-    event?.preventDefault(); setBusy(true);
-    try { setResult(await api.search(queryText, status || undefined)); clearError(); } catch (candidate) { setError(candidate); } finally { setBusy(false); }
+  const run = async (event?: FormEvent, nextPage = 0) => {
+    event?.preventDefault(); setBusy(true); setPage(nextPage);
+    try { setResult(await api.search(queryText, status || undefined, nextPage)); clearError(); } catch (candidate) { setError(candidate); } finally { setBusy(false); }
   };
   return (
     <RequireRole roles={['ADJUSTER', 'FINANCE', 'ADMIN']}>
@@ -63,6 +64,7 @@ export default function Search() {
                 {result.items.length === 0 && <tr><td colSpan={7} className="empty">Nothing found.</td></tr>}
               </tbody>
             </table>
+            <Pager page={page} totalPages={Math.ceil(result.total / result.size)} onPage={(next) => void run(undefined, next)} />
           </div>
         )}
       </Shell>

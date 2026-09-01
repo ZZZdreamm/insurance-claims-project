@@ -1,5 +1,5 @@
 import type {
-  Policy, ClaimPayment, ReserveSummary, CustomerCommunication, SubrogationCase, RecoverySummary,
+  Policy, ClaimPayment, ReserveSummary, CustomerCommunication, SubrogationCase, RecoverySummary, FraudContext,
   Claim, ClaimEventLogEntry, ClaimStatus, LedgerEntry, LedgerSummary, LoginResponse, Page, ReplayResult, ReviewQueueSummary, ReviewScope, Role,
   SearchResult, Severity, Statistics, SubmitClaimRequest, Usage, UserAccount, UserInfo,
 } from './types';
@@ -63,7 +63,7 @@ export const api = {
   me: () => call<UserInfo>(CLAIM_BASE, '/api/v1/auth/me'),
 
   // claims (policyholder + staff)
-  claims: (status?: ClaimStatus, size = 50) => call<Page<Claim>>(CLAIM_BASE, `/api/v1/claims?size=${size}${status ? `&status=${status}` : ''}`),
+  claims: (status?: ClaimStatus, page = 0, size = 25, q?: string) => call<Page<Claim>>(CLAIM_BASE, `/api/v1/claims?page=${page}&size=${size}${status ? `&status=${status}` : ''}${q ? `&q=${encodeURIComponent(q)}` : ''}`),
   claim: (id: string) => call<Claim>(CLAIM_BASE, `/api/v1/claims/${id}`),
   submit: (claim: SubmitClaimRequest, photos: File[]) => {
     const form = new FormData();
@@ -77,6 +77,7 @@ export const api = {
   payRemainder: (id: string) => call<Claim>(CLAIM_BASE, `/api/v1/claims/${id}/pay-remainder`, { method: 'POST' }),
   reserveSummary: () => call<ReserveSummary>(CLAIM_BASE, '/api/v1/reserves/summary'),
   communications: (id: string) => call<CustomerCommunication[]>(CLAIM_BASE, `/api/v1/claims/${id}/communications`),
+  fraudContext: (id: string) => call<FraudContext>(CLAIM_BASE, `/api/v1/claims/${id}/fraud-context`),
   decisionDocumentBlob: async (id: string): Promise<string> => {
     const session = loadSession();
     const response = await fetch(`${CLAIM_BASE}/api/v1/claims/${id}/decision-document`, { headers: session ? { Authorization: `Bearer ${session.token}` } : {} });
@@ -88,7 +89,7 @@ export const api = {
     call<SubrogationCase>(CLAIM_BASE, `/api/v1/claims/${claimId}/subrogation`, json('POST', { liableParty, expectedAmount })),
   recordRecovery: (id: string, amount: number) => call<SubrogationCase>(CLAIM_BASE, `/api/v1/subrogations/${id}/recoveries`, json('POST', { amount })),
   writeOffSubrogation: (id: string, reason: string) => call<SubrogationCase>(CLAIM_BASE, `/api/v1/subrogations/${id}/write-off`, json('POST', { reason })),
-  openSubrogations: () => call<SubrogationCase[]>(CLAIM_BASE, '/api/v1/subrogations'),
+  openSubrogations: (page = 0, size = 25, q?: string) => call<Page<SubrogationCase>>(CLAIM_BASE, `/api/v1/subrogations?page=${page}&size=${size}${q ? `&q=${encodeURIComponent(q)}` : ''}`),
   recoverySummary: () => call<RecoverySummary>(CLAIM_BASE, '/api/v1/subrogations/summary'),
   withdraw: (id: string) => call<Claim>(CLAIM_BASE, `/api/v1/claims/${id}/withdraw`, { method: 'POST' }),
   retryPayout: (id: string, approvedAmount?: number) => call<Claim>(CLAIM_BASE, `/api/v1/claims/${id}/retry-payout`, json('POST', approvedAmount ? { approvedAmount } : {})),
@@ -99,12 +100,13 @@ export const api = {
   },
 
   // reviews (adjuster)
-  reviews: (options: { scope?: ReviewScope; severity?: Severity | ''; escalatedOnly?: boolean; fraudOnly?: boolean; page?: number; size?: number } = {}) => {
+  reviews: (options: { scope?: ReviewScope; severity?: Severity | ''; escalatedOnly?: boolean; fraudOnly?: boolean; q?: string; page?: number; size?: number } = {}) => {
     const params = new URLSearchParams();
     if (options.scope) params.set('scope', options.scope);
     if (options.severity) params.set('severity', options.severity);
     if (options.escalatedOnly) params.set('escalatedOnly', 'true');
     if (options.fraudOnly) params.set('fraudOnly', 'true');
+    if (options.q) params.set('q', options.q);
     params.set('page', String(options.page ?? 0));
     params.set('size', String(options.size ?? 20));
     return call<Page<Claim>>(CLAIM_BASE, `/api/v1/reviews?${params.toString()}`);
@@ -114,16 +116,16 @@ export const api = {
   unclaimReview: (id: string) => call<Claim>(CLAIM_BASE, `/api/v1/reviews/${id}/unclaim`, { method: 'POST' }),
   approve: (id: string, approvedAmount: number, advancePercent?: number) =>
     call<Claim>(CLAIM_BASE, `/api/v1/reviews/${id}/approve`, json('POST', advancePercent ? { approvedAmount, advancePercent } : { approvedAmount })),
-  secondApprovals: () => call<Page<Claim>>(CLAIM_BASE, '/api/v1/reviews/second-approvals?size=100'),
+  secondApprovals: (page = 0, size = 25, q?: string) => call<Page<Claim>>(CLAIM_BASE, `/api/v1/reviews/second-approvals?page=${page}&size=${size}${q ? `&q=${encodeURIComponent(q)}` : ''}`),
   secondApprove: (id: string) => call<Claim>(CLAIM_BASE, `/api/v1/reviews/${id}/second-approval`, { method: 'POST' }),
   reject: (id: string, reason: string) => call<Claim>(CLAIM_BASE, `/api/v1/reviews/${id}/reject`, json('POST', { reason })),
 
   // search-service (staff)
-  search: (queryText: string, status?: string) => call<SearchResult>(SEARCH_BASE, `/api/v1/search?q=${encodeURIComponent(queryText)}${status ? `&status=${status}` : ''}&size=50`),
+  search: (queryText: string, status?: string, page = 0, size = 25) => call<SearchResult>(SEARCH_BASE, `/api/v1/search?q=${encodeURIComponent(queryText)}${status ? `&status=${status}` : ''}&page=${page}&size=${size}`),
   timeline: (claimId: string) => call<ClaimEventLogEntry[]>(SEARCH_BASE, `/api/v1/claims/${claimId}/events`),
 
   // payout-service (finance/admin)
-  ledger: () => call<LedgerSummary>(PAYOUT_BASE, '/api/v1/payouts'),
+  ledger: (page = 0, size = 25, q?: string) => call<LedgerSummary>(PAYOUT_BASE, `/api/v1/payouts?page=${page}&size=${size}${q ? `&q=${encodeURIComponent(q)}` : ''}`),
   ledgerEntry: (claimId: string) => call<LedgerEntry>(PAYOUT_BASE, `/api/v1/payouts/${claimId}`),
   replayDeadLetters: (topic: string) => call<ReplayResult>(PAYOUT_BASE, `/api/v1/dlq/replay?topic=${encodeURIComponent(topic)}`, { method: 'POST' }),
 

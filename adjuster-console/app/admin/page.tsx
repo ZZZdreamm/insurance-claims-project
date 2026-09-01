@@ -73,6 +73,7 @@ function UsagePanel({ usage }: { usage: Usage }) {
 function UsersPanel({ onError }: { onError: (error: unknown) => void }) {
   const { session } = useAuth();
   const [users, setUsers] = useState<UserAccount[]>([]);
+  const [filter, setFilter] = useState('');
   const [form, setForm] = useState({ username: '', password: '', displayName: '', roles: ['POLICYHOLDER'] as Role[] });
   const refresh = useCallback(() => api.users().then(setUsers).catch(onError), [onError]);
   useEffect(() => { void refresh(); }, [refresh]);
@@ -91,8 +92,9 @@ function UsersPanel({ onError }: { onError: (error: unknown) => void }) {
   return (
     <div className="grid cols-2">
       <div className="card table-wrap"><h2>Accounts ({users.length})</h2>
+        <div className="toolbar"><input className="inline-input" style={{ width: 240 }} placeholder="🔍 username or name…" value={filter} onChange={(event) => setFilter(event.target.value)} /></div>
         <table><thead><tr><th>User</th><th>Roles</th><th>State</th><th></th></tr></thead><tbody>
-          {users.map((user) => (
+          {users.filter((user) => (user.username + ' ' + user.displayName).toLowerCase().includes(filter.toLowerCase())).map((user) => (
             <tr key={user.id}>
               <td><strong>{user.displayName}</strong><br /><span className="muted small mono">{user.username}</span></td>
               <td><div className="actions">{ALL_ROLES.map((role) => <button key={role} className={`btn sm ${user.roles.includes(role) ? 'primary' : ''}`} onClick={() => toggleRole(user, role)} disabled={user.username === session?.user.username && role === 'ADMIN'}>{role}</button>)}</div></td>

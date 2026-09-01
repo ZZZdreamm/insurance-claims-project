@@ -1,7 +1,6 @@
 package com.kmultan.claims.domain;
 
 import java.math.BigDecimal;
-import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -11,7 +10,11 @@ import org.springframework.data.jpa.repository.Query;
 public interface SubrogationCaseRepository extends JpaRepository<SubrogationCase, UUID> {
     Optional<SubrogationCase> findByClaimId(UUID claimId);
 
-    List<SubrogationCase> findByStatusOrderByOpenedAt(SubrogationCase.Status status);
+    org.springframework.data.domain.Page<SubrogationCase> findByStatus(
+            SubrogationCase.Status status, org.springframework.data.domain.Pageable pageable);
+
+    org.springframework.data.domain.Page<SubrogationCase> findByStatusAndLiablePartyContainingIgnoreCase(
+            SubrogationCase.Status status, String liableParty, org.springframework.data.domain.Pageable pageable);
 
     long countByStatus(SubrogationCase.Status status);
 

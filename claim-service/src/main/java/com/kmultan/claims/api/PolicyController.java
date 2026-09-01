@@ -54,7 +54,9 @@ public class PolicyController {
 
     @GetMapping
     @PreAuthorize("hasAnyRole('ADJUSTER', 'FINANCE', 'ADMIN')")
-    public List<PolicyResponse> all() {
-        return claimService.allPolicies().stream().map(PolicyResponse::from).toList();
+    public org.springframework.data.domain.Page<PolicyResponse> all(
+            @org.springframework.data.web.PageableDefault(size = 50, sort = "policyNumber")
+                    org.springframework.data.domain.Pageable pageable) {
+        return claimService.allPolicies(pageable).map(PolicyResponse::from);
     }
 }

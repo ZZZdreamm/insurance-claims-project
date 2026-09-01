@@ -90,6 +90,11 @@ public interface ClaimRepository extends JpaRepository<Claim, UUID> {
               and (:severity is null or c.severity = :severity)
               and (:escalatedOnly = false or c.escalatedAt is not null)
               and (:fraudOnly = false or c.fraudFlags is not null)
+              and (:q is null
+                  or lower(c.claimNumber) like lower(concat('%', cast(:q as string), '%'))
+                  or lower(c.plateNumber) like lower(concat('%', cast(:q as string), '%'))
+                  or lower(c.policyNumber) like lower(concat('%', cast(:q as string), '%'))
+                  or lower(c.description) like lower(concat('%', cast(:q as string), '%')))
             order by c.reviewDueAt asc
             """)
     Page<Claim> findReviewQueue(
@@ -98,6 +103,24 @@ public interface ClaimRepository extends JpaRepository<Claim, UUID> {
             @Param("severity") Severity severity,
             @Param("escalatedOnly") boolean escalatedOnly,
             @Param("fraudOnly") boolean fraudOnly,
+            @Param("q") String queryText,
+            Pageable pageable);
+
+    /** Free-text filter over the identifying fields, with optional status and owner narrowing. */
+    @Query(
+            """
+            select c from Claim c
+            where (:status is null or c.status = :status)
+              and (:ownerId is null or c.ownerId = :ownerId)
+              and (lower(c.claimNumber) like lower(concat('%', cast(:q as string), '%'))
+                  or lower(c.plateNumber) like lower(concat('%', cast(:q as string), '%'))
+                  or lower(c.policyNumber) like lower(concat('%', cast(:q as string), '%'))
+                  or lower(c.description) like lower(concat('%', cast(:q as string), '%')))
+            """)
+    Page<Claim> searchClaims(
+            @Param("status") ClaimStatus status,
+            @Param("ownerId") UUID ownerId,
+            @Param("q") String queryText,
             Pageable pageable);
 
     long countByStatusAndFraudFlagsIsNotNull(ClaimStatus status);
@@ -105,7 +128,17 @@ public interface ClaimRepository extends JpaRepository<Claim, UUID> {
     boolean existsByPlateNumberAndIncidentDateBetweenAndIdNot(
             String plateNumber, java.time.LocalDate from, java.time.LocalDate to, UUID excludedClaimId);
 
+    java.util.List<Claim> findTop20ByPlateNumberAndIncidentDateBetweenAndIdNotOrderByIncidentDate(
+            String plateNumber, java.time.LocalDate from, java.time.LocalDate to, UUID excludedClaimId);
+
+    long countByPlateNumberAndIncidentDateBetweenAndIdNot(
+            String plateNumber, java.time.LocalDate from, java.time.LocalDate to, UUID excludedClaimId);
+
     long countByOwnerIdAndCreatedAtAfter(UUID ownerId, java.time.Instant after);
+
+    java.util.List<Claim> findTop20ByOwnerIdAndIdNotOrderByCreatedAtDesc(UUID ownerId, UUID excludedClaimId);
+
+    long countByOwnerIdAndIdNot(UUID ownerId, UUID excludedClaimId);
 
     long countByStatusAndReviewAssigneeIsNull(ClaimStatus status);
 

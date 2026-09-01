@@ -51,38 +51,69 @@ public class PayoutLedgerController {
             long payoutsReversed,
             BigDecimal totalIssued,
             BigDecimal totalReserved,
-            List<LedgerEntry> entries) {}
+            List<LedgerEntry> entries,
+            int page,
+            int totalPages,
+            long totalElements) {}
 
+    /**
+     * Aggregates come from the database, entries come one page at a time — the ledger grows with
+     * every claim and loading it whole would eventually freeze the finance view.
+     */
     @GetMapping
-    public LedgerSummary ledger() {
-        List<FundReservation> allReservations = reservations.findAll(Sort.by(Sort.Direction.DESC, "updatedAt"));
+    public LedgerSummary ledger(
+            @org.springframework.web.bind.annotation.RequestParam(required = false) String q,
+            @org.springframework.data.web.PageableDefault(size = 25)
+                    org.springframework.data.domain.Pageable pageable) {
+        var sortedPage = org.springframework.data.domain.PageRequest.of(
+                pageable.getPageNumber(), pageable.getPageSize(), Sort.by(Sort.Direction.DESC, "updatedAt"));
+        org.springframework.data.domain.Page<FundReservation> reservationPage = pageMatching(q, sortedPage);
         Map<UUID, Payout> payoutByClaim =
-                payouts.findAll().stream().collect(Collectors.toMap(Payout::getClaimId, Function.identity()));
-        List<LedgerEntry> entries = allReservations.stream()
+                payouts
+                        .findAllById(reservationPage.getContent().stream()
+                                .map(FundReservation::getClaimId)
+                                .toList())
+                        .stream()
+                        .collect(Collectors.toMap(Payout::getClaimId, Function.identity()));
+        List<LedgerEntry> entries = reservationPage.getContent().stream()
                 .map(reservation -> entry(reservation, payoutByClaim.get(reservation.getClaimId())))
                 .toList();
         return new LedgerSummary(
-                allReservations.size(),
-                payoutByClaim.values().stream()
-                        .filter(payout -> payout.getStatus() == Payout.Status.ISSUED)
-                        .count(),
-                payoutByClaim.values().stream()
-                        .filter(payout -> payout.getStatus() == Payout.Status.FAILED)
-                        .count(),
-                payoutByClaim.values().stream()
-                        .filter(payout -> payout.getStatus() == Payout.Status.REVERSED)
-                        .count(),
-                payoutByClaim.values().stream()
-                        .filter(payout -> payout.getStatus() == Payout.Status.ISSUED)
-                        .map(Payout::getAmount)
-                        .reduce(BigDecimal.ZERO, BigDecimal::add),
-                allReservations.stream()
-                        .filter(reservation -> reservation.getStatus() == FundReservation.Status.RESERVED)
-                        .map(FundReservation::getAmount)
-                        .reduce(BigDecimal.ZERO, BigDecimal::add),
-                entries);
+                reservationPage.getTotalElements(),
+                payouts.countByStatus(Payout.Status.ISSUED),
+                payouts.countByStatus(Payout.Status.FAILED),
+                payouts.countByStatus(Payout.Status.REVERSED),
+                payouts.sumAmountByStatus(Payout.Status.ISSUED),
+                reservations.sumAmountByStatus(FundReservation.Status.RESERVED),
+                entries,
+                reservationPage.getNumber(),
+                reservationPage.getTotalPages(),
+                reservationPage.getTotalElements());
     }
 
+    /** Matches transfer references (contains) and, when the query parses as a UUID, the claim id too. */
+    private org.springframework.data.domain.Page<FundReservation> pageMatching(
+            String q, org.springframework.data.domain.Pageable pageable) {
+        if (q == null || q.isBlank()) {
+            return reservations.findAll(pageable);
+        }
+        String query = q.trim();
+        // references from the async gateway are UUID-shaped too, so a UUID query may be either a
+        // claim id or a transfer reference — match both and take the union
+        java.util.Set<UUID> matching = payouts.findTop100ByReferenceContainingIgnoreCase(query).stream()
+                .map(Payout::getClaimId)
+                .collect(java.util.stream.Collectors.toCollection(java.util.LinkedHashSet::new));
+        try {
+            matching.add(UUID.fromString(query));
+        } catch (IllegalArgumentException notAClaimId) {
+            // plain-text reference search only
+        }
+        return matching.isEmpty()
+                ? org.springframework.data.domain.Page.empty(pageable)
+                : reservations.findByClaimIdIn(matching, pageable);
+    }
+
+    /** The money view of one claim. */
     @GetMapping("/{claimId}")
     public LedgerEntry forClaim(@PathVariable UUID claimId) {
         FundReservation reservation = reservations

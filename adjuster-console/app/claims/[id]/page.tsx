@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useCallback, useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { api } from '../../api';
@@ -7,7 +8,7 @@ import { RequireRole, useAuth } from '../../auth';
 import { Shell } from '../../components/Shell';
 import { ClaimActions } from '../../components/ClaimActions';
 import { Alert, FraudBadges, Photos, SeverityBadge, StatusBadge, formatDateTime, formatMoney, useErrorState } from '../../components/ui';
-import type { Claim, ClaimEventLogEntry, ClaimPayment, CustomerCommunication, LedgerEntry, SubrogationCase } from '../../types';
+import type { Claim, ClaimEventLogEntry, ClaimPayment, CustomerCommunication, FraudContext, LedgerEntry, SubrogationCase } from '../../types';
 
 const EVENT_LABEL: Record<string, string> = {
   CLAIM_SUBMITTED: 'Claim submitted', ASSESSMENT_COMPLETED: 'Automated assessment completed', REVIEW_CLAIMED: 'Adjuster took the review',
@@ -26,6 +27,7 @@ export default function ClaimDetail() {
   const [payments, setPayments] = useState<ClaimPayment[]>([]);
   const [communications, setCommunications] = useState<CustomerCommunication[]>([]);
   const [subrogation, setSubrogation] = useState<SubrogationCase | null>(null);
+  const [fraudContext, setFraudContext] = useState<FraudContext | null>(null);
   const [openComm, setOpenComm] = useState<string | null>(null);
   const [error, setError, clearError] = useErrorState();
   const [note, setNote] = useState<string | null>(null);
@@ -35,7 +37,10 @@ export default function ClaimDetail() {
       setClaim(await api.claim(id)); clearError();
       api.payments(id).then(setPayments).catch(() => setPayments([]));
       api.communications(id).then(setCommunications).catch(() => setCommunications([]));
-      if (has('ADJUSTER', 'FINANCE', 'ADMIN')) api.subrogationOf(id).then(setSubrogation).catch(() => setSubrogation(null));
+      if (has('ADJUSTER', 'FINANCE', 'ADMIN')) {
+        api.subrogationOf(id).then(setSubrogation).catch(() => setSubrogation(null));
+        api.fraudContext(id).then(setFraudContext).catch(() => setFraudContext(null));
+      }
       if (has('ADJUSTER', 'FINANCE', 'ADMIN')) api.timeline(id).then(setTimeline).catch(() => setNote('The timeline needs search-service running (profile search).'));
       if (has('FINANCE', 'ADMIN')) api.ledgerEntry(id).then(setLedger).catch(() => setLedger(null));
     } catch (candidate) { setError(candidate); }
@@ -126,6 +131,9 @@ export default function ClaimDetail() {
               </div>
             </div>
             <div>
+              {has('ADJUSTER', 'FINANCE', 'ADMIN') && claim.fraudFlags.length > 0 && fraudContext && (
+                <FraudInvestigationCard claim={claim} context={fraudContext} />
+              )}
               {has('ADJUSTER', 'FINANCE', 'ADMIN') && ['PAID', 'PARTIALLY_PAID'].includes(claim.status) && !subrogation && (
                 <SubrogationOpenCard claim={claim} onChange={refresh} onError={setError} />
               )}
@@ -218,6 +226,68 @@ function SubrogationCard({ subrogation, onChange, onError }: { subrogation: Subr
           <input className="inline-input" style={{ width: 160 }} placeholder="write-off reason" value={reason} onChange={(event) => setReason(event.target.value)} />
           <button className="btn sm danger" disabled={!reason} onClick={() => api.writeOffSubrogation(subrogation.id, reason).then(onChange).catch(onError)}>Write off</button>
         </div>
+      )}
+    </div>
+  );
+}
+
+function RelatedClaimsTable({ rows, showOwnerColumns }: { rows: Claim[]; showOwnerColumns?: boolean }) {
+  return (
+    <div className="table-wrap">
+      <table>
+        <thead><tr><th>Claim</th><th>Incident</th><th>Status</th><th className="num">Amount</th><th>{showOwnerColumns ? 'Submitted' : 'Photos'}</th></tr></thead>
+        <tbody>
+          {rows.map((related) => (
+            <tr key={related.id}>
+              <td><Link href={`/claims/${related.id}`}><strong>{related.claimNumber}</strong></Link><br /><span className="muted small">{related.plateNumber} · {related.policyNumber}</span></td>
+              <td className="nowrap">{related.incidentDate}</td>
+              <td><StatusBadge status={related.status} />{related.fraudFlags.length > 0 && <div><FraudBadges flags={related.fraudFlags} /></div>}</td>
+              <td className="num">{formatMoney(related.approvedAmount ?? related.estimatedAmount)}</td>
+              <td>{showOwnerColumns ? <span className="nowrap small">{formatDateTime(related.createdAt)}</span> : <Photos claim={related} />}</td>
+            </tr>
+          ))}
+          {rows.length === 0 && <tr><td colSpan={5} className="empty">Nothing found.</td></tr>}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+/** The evidence behind the flags: duplicates to compare side by side, and the policyholder's full history. */
+function FraudInvestigationCard({ claim, context }: { claim: Claim; context: FraudContext }) {
+  const [open, setOpen] = useState<'duplicates' | 'owner' | null>(claim.fraudFlags.includes('DUPLICATE_CLAIM') ? 'duplicates' : 'owner');
+  return (
+    <div className="card">
+      <h2>🚩 Fraud investigation</h2>
+      <div className="actions" style={{ marginBottom: '0.6rem' }}>
+        {claim.fraudFlags.includes('DUPLICATE_CLAIM') && (
+          <button className={`btn sm ${open === 'duplicates' ? 'primary' : ''}`} onClick={() => setOpen(open === 'duplicates' ? null : 'duplicates')}>
+            Possible duplicates ({context.duplicateTotal})
+          </button>
+        )}
+        {claim.fraudFlags.includes('HIGH_CLAIM_FREQUENCY') && (
+          <button className={`btn sm ${open === 'owner' ? 'primary' : ''}`} onClick={() => setOpen(open === 'owner' ? null : 'owner')}>
+            This policyholder's claims ({context.ownerClaimTotal})
+          </button>
+        )}
+      </div>
+      {open === 'duplicates' && (
+        <>
+          <p className="muted small">
+            Claims for vehicle <strong>{claim.plateNumber}</strong> with an incident within 14 days of this one — compare the photos and descriptions
+            {context.duplicateTotal > context.duplicateCandidates.length && <> (showing {context.duplicateCandidates.length} of {context.duplicateTotal})</>}:
+          </p>
+          <RelatedClaimsTable rows={context.duplicateCandidates} />
+        </>
+      )}
+      {open === 'owner' && (
+        <>
+          <p className="muted small">
+            Every other claim submitted by this policyholder, newest first
+            {context.ownerClaimTotal > context.ownerClaims.length && <> — showing the latest {context.ownerClaims.length} of {context.ownerClaimTotal}</>}:
+          </p>
+          <RelatedClaimsTable rows={context.ownerClaims} showOwnerColumns />
+        </>
       )}
     </div>
   );

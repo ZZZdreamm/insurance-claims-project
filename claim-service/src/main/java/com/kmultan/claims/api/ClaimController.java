@@ -112,11 +112,12 @@ public class ClaimController {
     @GetMapping
     public Page<ClaimResponse> list(
             @RequestParam(required = false) ClaimStatus status,
+            @RequestParam(required = false) String q,
             @PageableDefault(size = 20, sort = "createdAt", direction = Sort.Direction.DESC) Pageable pageable) {
         AuthenticatedUser user = AuthenticatedUser.current();
         Page<Claim> page = user.isStaff()
-                ? claimService.list(status, pageable)
-                : claimService.listOwnedBy(user.id(), status, pageable);
+                ? claimService.list(status, q, pageable)
+                : claimService.listOwnedBy(user.id(), status, q, pageable);
         return page.map(responses::toResponse);
     }
 
@@ -136,7 +137,29 @@ public class ClaimController {
         return responses.toResponse(claimService.withdraw(claimId));
     }
 
-    /** PAYOUT_FAILED -> APPROVED, optionally with a corrected amount; payout-service reacts to the new CLAIM_APPROVED. */
+    /**
+     * Evidence behind the fraud flags: other claims for the same vehicle in the duplicate window,
+     * and the full claim history of the same policyholder — what an investigator compares.
+     */
+    @GetMapping("/{claimId}/fraud-context")
+    @PreAuthorize("hasAnyRole('ADJUSTER', 'FINANCE', 'ADMIN')")
+    public FraudContextResponse fraudContext(@PathVariable UUID claimId) {
+        var context = claimService.fraudContextOf(claimId);
+        return new FraudContextResponse(
+                context.duplicateCandidates().stream()
+                        .map(responses::toResponse)
+                        .toList(),
+                context.duplicateTotal(),
+                context.ownerClaims().stream().map(responses::toResponse).toList(),
+                context.ownerClaimTotal());
+    }
+
+    public record FraudContextResponse(
+            List<ClaimResponse> duplicateCandidates,
+            long duplicateTotal,
+            List<ClaimResponse> ownerClaims,
+            long ownerClaimTotal) {}
+
     /** Every message sent to the policyholder about this claim. */
     @GetMapping("/{claimId}/communications")
     public List<CommunicationResponse> communications(@PathVariable UUID claimId) {

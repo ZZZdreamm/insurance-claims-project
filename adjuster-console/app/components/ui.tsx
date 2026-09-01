@@ -48,6 +48,28 @@ export function SeverityBadge({ severity }: { severity: Severity | null | undefi
   return severity ? <span className={`badge ${severity}`}>{severity}</span> : <span className="badge">not assessed</span>;
 }
 
+/** Debounce for search-as-you-type table filters: one request per pause, not per keystroke. */
+export function useDebounced<T>(value: T, delayMs = 350): T {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const timer = setTimeout(() => setDebounced(value), delayMs);
+    return () => clearTimeout(timer);
+  }, [value, delayMs]);
+  return debounced;
+}
+
+/** Shared pagination control; renders nothing when everything fits on one page. */
+export function Pager({ page, totalPages, onPage }: { page: number; totalPages: number; onPage: (next: number) => void }) {
+  if (totalPages <= 1) return null;
+  return (
+    <div className="actions" style={{ marginTop: '0.8rem', justifyContent: 'flex-end' }}>
+      <button className="btn sm" disabled={page === 0} onClick={() => onPage(page - 1)}>‹ Previous</button>
+      <span className="muted small tabular">{page + 1} / {totalPages}</span>
+      <button className="btn sm" disabled={page + 1 >= totalPages} onClick={() => onPage(page + 1)}>Next ›</button>
+    </div>
+  );
+}
+
 export function Stat({ label, value, hint }: { label: string; value: ReactNode; hint?: ReactNode }) {
   return (
     <div className="card stat"><div className="label">{label}</div><div className="value">{value}</div>{hint && <div className="hint">{hint}</div>}</div>

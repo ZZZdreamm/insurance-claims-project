@@ -141,6 +141,14 @@ class FourEyesAndPartialPayoutIT extends AbstractIntegrationTest {
 
         mockMvc.perform(get("/api/v1/reviews/summary").header("Authorization", TOKENS.bearer("alice", "ADJUSTER")))
                 .andExpect(jsonPath("$.fraudSuspected").value(org.hamcrest.Matchers.greaterThanOrEqualTo(1)));
+
+        // the investigation context lists the first claim as the duplicate candidate to compare against
+        mockMvc.perform(get("/api/v1/claims/{id}/fraud-context", second)
+                        .header("Authorization", TOKENS.bearer("alice", "ADJUSTER")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.duplicateCandidates[0].plateNumber")
+                        .value(claimService.get(second).getPlateNumber()))
+                .andExpect(jsonPath("$.ownerClaims").isArray());
     }
 
     @Test

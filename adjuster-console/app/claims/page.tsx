@@ -5,8 +5,8 @@ import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { api } from '../api';
 import { RequireRole } from '../auth';
 import { Shell } from '../components/Shell';
-import { Alert, Photos, SeverityBadge, StatusBadge, formatDateTime, formatMoney, useErrorState } from '../components/ui';
-import type { Claim, Policy } from '../types';
+import { Alert, Pager, Photos, SeverityBadge, StatusBadge, formatDateTime, formatMoney, useDebounced, useErrorState } from '../components/ui';
+import type { Claim, Page as PageOf, Policy } from '../types';
 
 function SubmitForm({ onDone, onError }: { onDone: () => void; onError: (error: unknown) => void }) {
   const [policies, setPolicies] = useState<Policy[]>([]);
@@ -75,26 +75,48 @@ function SubmitForm({ onDone, onError }: { onDone: () => void; onError: (error: 
 }
 
 export default function MyClaims() {
-  const [claims, setClaims] = useState<Claim[]>([]);
+  const [page, setPage] = useState(0);
+  const [query, setQuery] = useState('');
+  const q = useDebounced(query);
+  const [claimsPage, setClaimsPage] = useState<PageOf<Claim> | null>(null);
+  const [totals, setTotals] = useState<{ all: number; paid: number; closed: number } | null>(null);
   const [error, setError, clearError] = useErrorState();
-  const refresh = useCallback(async () => { try { setClaims((await api.claims()).content); clearError(); } catch (candidate) { setError(candidate); } }, [setError, clearError]);
+  const refresh = useCallback(async () => {
+    try {
+      // one-row probes give the true totals without downloading the lists
+      const [current, paidProbe, rejectedProbe, withdrawnProbe] = await Promise.all([
+        api.claims(undefined, page, 25, q), api.claims('PAID', 0, 1), api.claims('REJECTED', 0, 1), api.claims('WITHDRAWN', 0, 1),
+      ]);
+      setClaimsPage(current);
+      setTotals({
+        all: current.totalElements,
+        paid: paidProbe.totalElements,
+        closed: paidProbe.totalElements + rejectedProbe.totalElements + withdrawnProbe.totalElements,
+      });
+      clearError();
+    } catch (candidate) { setError(candidate); }
+  }, [page, q, setError, clearError]);
   useEffect(() => { void refresh(); const timer = setInterval(() => void refresh(), 5000); return () => clearInterval(timer); }, [refresh]);
 
-  const active = claims.filter((claim) => !['PAID', 'REJECTED', 'WITHDRAWN'].includes(claim.status));
-  const paid = claims.filter((claim) => claim.status === 'PAID').reduce((sum, claim) => sum + (claim.approvedAmount ?? 0), 0);
+  const claims = claimsPage?.content ?? [];
+  useEffect(() => { setPage(0); }, [q]);
 
   return (
     <RequireRole roles={['POLICYHOLDER', 'ADMIN']}>
       <Shell title="My claims" subtitle="Your claims, their status and payouts">
         <div className="grid cols-3" style={{ marginBottom: '1rem' }}>
-          <div className="card stat"><div className="label">All claims</div><div className="value">{claims.length}</div></div>
-          <div className="card stat"><div className="label">In progress</div><div className="value">{active.length}</div></div>
-          <div className="card stat"><div className="label">Paid in total</div><div className="value">{formatMoney(paid)}</div></div>
+          <div className="card stat"><div className="label">All claims</div><div className="value">{totals?.all ?? '—'}</div></div>
+          <div className="card stat"><div className="label">In progress</div><div className="value">{totals ? totals.all - totals.closed : '—'}</div></div>
+          <div className="card stat"><div className="label">Paid claims</div><div className="value">{totals?.paid ?? '—'}</div></div>
         </div>
         <SubmitForm onDone={() => void refresh()} onError={setError} />
         {error && <Alert kind="error">{error}</Alert>}
         <div className="card table-wrap" style={{ marginTop: '1rem' }}>
           <h2>Claims</h2>
+          <div className="toolbar">
+            <input className="inline-input" style={{ width: 280 }} placeholder="🔍 claim no., plate, policy, description…" value={query} onChange={(event) => setQuery(event.target.value)} />
+            {q && <span className="muted small">{claimsPage?.totalElements ?? 0} matching</span>}
+          </div>
           <table>
             <thead><tr><th>Claim</th><th>Description</th><th>Status</th><th>Assessment</th><th className="num">Amount</th><th>Submitted</th><th></th></tr></thead>
             <tbody>
@@ -116,6 +138,7 @@ export default function MyClaims() {
               {claims.length === 0 && <tr><td colSpan={7} className="empty">No claims yet — use the form above.</td></tr>}
             </tbody>
           </table>
+          <Pager page={page} totalPages={claimsPage?.totalPages ?? 0} onPage={setPage} />
         </div>
       </Shell>
     </RequireRole>

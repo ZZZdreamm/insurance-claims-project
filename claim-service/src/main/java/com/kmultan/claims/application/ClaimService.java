@@ -160,8 +160,8 @@ public class ClaimService {
     }
 
     @Transactional(readOnly = true)
-    public List<Policy> allPolicies() {
-        return policies.findAll();
+    public Page<Policy> allPolicies(Pageable pageable) {
+        return policies.findAll(pageable);
     }
 
     @Transactional(readOnly = true)
@@ -170,12 +170,18 @@ public class ClaimService {
     }
 
     @Transactional(readOnly = true)
-    public Page<Claim> list(ClaimStatus status, Pageable pageable) {
+    public Page<Claim> list(ClaimStatus status, String queryText, Pageable pageable) {
+        if (queryText != null && !queryText.isBlank()) {
+            return claims.searchClaims(status, null, queryText.trim(), pageable);
+        }
         return status == null ? claims.findAll(pageable) : claims.findByStatus(status, pageable);
     }
 
     @Transactional(readOnly = true)
-    public Page<Claim> listOwnedBy(UUID ownerId, ClaimStatus status, Pageable pageable) {
+    public Page<Claim> listOwnedBy(UUID ownerId, ClaimStatus status, String queryText, Pageable pageable) {
+        if (queryText != null && !queryText.isBlank()) {
+            return claims.searchClaims(status, ownerId, queryText.trim(), pageable);
+        }
         return status == null
                 ? claims.findByOwnerId(ownerId, pageable)
                 : claims.findByOwnerIdAndStatus(ownerId, status, pageable);
@@ -233,7 +239,12 @@ public class ClaimService {
     }
 
     public record ReviewQueueFilter(
-            String assignee, boolean unassignedOnly, Severity severity, boolean escalatedOnly, boolean fraudOnly) {}
+            String assignee,
+            boolean unassignedOnly,
+            Severity severity,
+            boolean escalatedOnly,
+            boolean fraudOnly,
+            String queryText) {}
 
     public record ReviewQueueSummary(
             long open,
@@ -252,11 +263,17 @@ public class ClaimService {
                 filter.severity(),
                 filter.escalatedOnly(),
                 filter.fraudOnly(),
+                filter.queryText() == null || filter.queryText().isBlank()
+                        ? null
+                        : filter.queryText().trim(),
                 pageable);
     }
 
     @Transactional(readOnly = true)
-    public Page<Claim> awaitingSecondApproval(Pageable pageable) {
+    public Page<Claim> awaitingSecondApproval(String queryText, Pageable pageable) {
+        if (queryText != null && !queryText.isBlank()) {
+            return claims.searchClaims(ClaimStatus.PENDING_SECOND_APPROVAL, null, queryText.trim(), pageable);
+        }
         return claims.findByStatus(ClaimStatus.PENDING_SECOND_APPROVAL, pageable);
     }
 
@@ -354,6 +371,11 @@ public class ClaimService {
     @Transactional(readOnly = true)
     public Policy policyOf(UUID claimId) {
         return policies.findById(get(claimId).getPolicyNumber()).orElse(null);
+    }
+
+    @Transactional(readOnly = true)
+    public FraudScreeningService.InvestigationContext fraudContextOf(UUID claimId) {
+        return fraudScreening.investigationContext(get(claimId));
     }
 
     @Transactional(readOnly = true)

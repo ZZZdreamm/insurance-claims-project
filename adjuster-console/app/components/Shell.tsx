@@ -37,7 +37,7 @@ export function Shell({ title, subtitle, actions, children }: { title: string; s
                 <div className="section">{group.section}</div>
                 {visible.map((item) => (
                   <Link key={item.href} href={item.href} className={path.startsWith(item.href) ? 'active' : ''}>
-                    <span aria-hidden>{item.icon}</span> {item.label}
+                    <span className="icon" aria-hidden>{item.icon}</span> {item.label}
                   </Link>
                 ))}
               </div>
@@ -46,17 +46,22 @@ export function Shell({ title, subtitle, actions, children }: { title: string; s
           {has('ADMIN') && (
             <div>
               <div className="section">Tools</div>
-              <a href={EXTERNAL_LINKS.grafana} target="_blank" rel="noreferrer">📈 Grafana</a>
-              <a href={EXTERNAL_LINKS.kibana} target="_blank" rel="noreferrer">🧭 Kibana</a>
-              <a href={EXTERNAL_LINKS.jenkins} target="_blank" rel="noreferrer">🛠 Jenkins</a>
+              <a href={EXTERNAL_LINKS.grafana} target="_blank" rel="noreferrer"><span className="icon" aria-hidden>📈</span> Grafana</a>
+              <a href={EXTERNAL_LINKS.kibana} target="_blank" rel="noreferrer"><span className="icon" aria-hidden>🧭</span> Kibana</a>
+              <a href={EXTERNAL_LINKS.jenkins} target="_blank" rel="noreferrer"><span className="icon" aria-hidden>🛠</span> Jenkins</a>
             </div>
           )}
         </nav>
         {session && (
           <div className="userbox">
-            <div className="name">{session.user.displayName}</div>
-            <div className="roles">{session.user.username} · {session.user.roles.join(', ')}</div>
-            <button className="btn sm" style={{ marginTop: '0.6rem' }} onClick={logout}>Sign out</button>
+            <div className="avatar" aria-hidden>
+              {session.user.displayName.split(' ').map((part) => part[0]).slice(0, 2).join('').toUpperCase()}
+            </div>
+            <div>
+              <div className="name">{session.user.displayName}</div>
+              <div className="roles">{session.user.roles.map((role) => role.toLowerCase()).join(' · ')}</div>
+            </div>
+            <button className="btn sm" onClick={logout}>Sign out</button>
           </div>
         )}
       </aside>

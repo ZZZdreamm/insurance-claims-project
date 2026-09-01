@@ -64,4 +64,27 @@ public class FraudScreeningService {
         }
         return flags;
     }
+
+    /**
+     * The evidence behind the flags: what an investigator compares side by side. Lists are capped at
+     * 20 rows with the true totals alongside — a load test's policyholder can own thousands of claims,
+     * and returning them all once froze the claim view.
+     */
+    public record InvestigationContext(
+            List<Claim> duplicateCandidates, long duplicateTotal, List<Claim> ownerClaims, long ownerClaimTotal) {}
+
+    public InvestigationContext investigationContext(Claim claim) {
+        var from = claim.getIncidentDate().minusDays(DUPLICATE_WINDOW_DAYS);
+        var to = claim.getIncidentDate().plusDays(DUPLICATE_WINDOW_DAYS);
+        List<Claim> duplicates = claims.findTop20ByPlateNumberAndIncidentDateBetweenAndIdNotOrderByIncidentDate(
+                claim.getPlateNumber(), from, to, claim.getId());
+        long duplicateTotal = claims.countByPlateNumberAndIncidentDateBetweenAndIdNot(
+                claim.getPlateNumber(), from, to, claim.getId());
+        List<Claim> ownerClaims = claim.getOwnerId() == null
+                ? List.of()
+                : claims.findTop20ByOwnerIdAndIdNotOrderByCreatedAtDesc(claim.getOwnerId(), claim.getId());
+        long ownerClaimTotal =
+                claim.getOwnerId() == null ? 0 : claims.countByOwnerIdAndIdNot(claim.getOwnerId(), claim.getId());
+        return new InvestigationContext(duplicates, duplicateTotal, ownerClaims, ownerClaimTotal);
+    }
 }
