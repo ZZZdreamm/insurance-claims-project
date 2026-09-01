@@ -160,14 +160,31 @@ at commit and the relay runs later on a scheduler thread. The `traceparent` is s
 and re-activated around the send, so every consumer — including the Python service — joins the trace
 that submitted the claim. `TracePropagationIT` asserts the Kafka header carries the submit's trace id.
 
+**Every list is a page with true totals.**
+The load tests leave one policyholder with 16 000+ claims, and that shaped a rule: no endpoint returns
+an unbounded list. Tables page server-side (with a free-text `q` filter pushed into SQL), evidence
+lists cap at 20 rows with the real count alongside, ledger aggregates are computed in the database
+rather than by loading both tables, and UI stat cards read page metadata instead of summing whatever
+happened to be fetched. Each of these replaced code that worked fine until the data grew — the review
+queue, the finance view and the fraud drill-down all froze first and got the treatment second.
+
+**Frontend state with the same discipline as the backend.**
+The console (Next.js 14 + TypeScript) polls instead of streaming — a deliberate simplicity trade-off —
+which makes referential stability a correctness issue: an error-state hook returning fresh callbacks per
+render once turned every poll into an unbounded request loop (`ERR_INSUFFICIENT_RESOURCES`). The hooks
+now guarantee stable identities, photo blobs are cached per id, and search inputs debounce 350 ms so a
+keystroke is not a query.
+
 ## 4. Domain model and event catalogue
 
 **Claim state machine** (`ClaimStatus`):
 
 ```
-SUBMITTED ──ASSESSMENT_COMPLETED──▶ PENDING_REVIEW ──approve──▶ APPROVED ──PAYOUT_ISSUED──▶ PAID
-                                          │                        │  ▲
-                                          └──reject──▶ REJECTED    │  └──retry-payout── PAYOUT_FAILED ◀──PAYOUT_FAILED / RESERVATION_REJECTED──┘
+SUBMITTED ──ASSESSMENT_COMPLETED──▶ PENDING_REVIEW ──approve──────────────▶ APPROVED ──PAYOUT_ISSUED──▶ PAID
+                                          │            └─(above the limit)─▶ PENDING_SECOND_APPROVAL ──2nd approve─▶ APPROVED
+                                          └──reject──▶ REJECTED
+APPROVED ──PAYOUT_ISSUED (advance)──▶ PARTIALLY_PAID ──pay-remainder──▶ APPROVED ──▶ PAID
+APPROVED ──PAYOUT_FAILED / RESERVATION_REJECTED──▶ PAYOUT_FAILED ──retry-payout──▶ APPROVED
 any non-terminal ──withdraw──▶ WITHDRAWN
 ```
 
@@ -175,7 +192,7 @@ any non-terminal ──withdraw──▶ WITHDRAWN
 
 | Topic | Producer | Events |
 |---|---|---|
-| `claims.events` | claim-service (outbox) | `CLAIM_SUBMITTED`, `ASSESSMENT_COMPLETED`, `REVIEW_CLAIMED`, `REVIEW_UNCLAIMED`, `REVIEW_SLA_BREACHED`, `CLAIM_APPROVED`, `CLAIM_REJECTED`, `CLAIM_PAID`, `PAYOUT_FAILED`, `PAYOUT_UNACCEPTED`, `CLAIM_WITHDRAWN` — each with a full claim snapshot |
+| `claims.events` | claim-service (outbox) | `CLAIM_SUBMITTED`, `ASSESSMENT_COMPLETED`, `REVIEW_CLAIMED`, `REVIEW_UNCLAIMED`, `REVIEW_SLA_BREACHED`, `SECOND_APPROVAL_REQUESTED`, `CLAIM_APPROVED`, `CLAIM_PARTIALLY_PAID`, `CLAIM_REJECTED`, `CLAIM_PAID`, `PAYOUT_FAILED`, `PAYOUT_UNACCEPTED`, `CLAIM_WITHDRAWN`, `SUBROGATION_OPENED`, `SUBROGATION_RECOVERY_RECORDED`, `SUBROGATION_CLOSED` — each with a full claim snapshot (incl. payable/paid amounts and the fraud flag) |
 | `assessment.events` | assessment-service | `ASSESSMENT_COMPLETED` (severity, amount, provider, model version, score, explanation) |
 | `payout.events` | payout-service (outbox) | `FUNDS_RESERVED`, `RESERVATION_REJECTED`, `PAYOUT_ISSUED`, `PAYOUT_FAILED`, `FUNDS_RELEASED`, `PAYOUT_REVERSED` |
 | `*.DLT` | Spring Kafka error handler | poison records after 4 attempts, same partition |
@@ -184,18 +201,18 @@ Every record carries `eventId`, `eventType`, `sequence` (global outbox order) an
 Events carry snapshots, not ids-to-look-up, so consumers never call back into the producer to build
 their view.
 
-**Data ownership:** claim-service (`claim`, `claim_photo`, `user_account`, `processed_message`,
-`outbox_event`), payout-service (`fund_reservation`, `payout`, `processed_message`, `outbox_event`),
+**Data ownership:** claim-service (`claim`, `claim_photo`, `policy`, `claim_reserve`, `claim_payment`,
+`subrogation_case`, `customer_communication`, `user_account`, `processed_message`, `outbox_event`), payout-service (`fund_reservation`, `payout`, `processed_message`, `outbox_event`),
 search-service (`claims`, `claim-events` indices), Redis (idempotency keys, rate-limit windows). Schemas
-are Flyway-managed (`V1` … `V7`); Hibernate runs with `ddl-auto: validate` so drift fails at startup.
+are Flyway-managed (`V1` … `V10`); Hibernate runs with `ddl-auto: validate` so drift fails at startup.
 
 ## 5. Security model
 
 | Role | Can |
 |---|---|
-| `POLICYHOLDER` | submit claims (JSON or multipart with photos); read, list and withdraw **own** claims only |
-| `ADJUSTER` | read all claims; review queue: claim/unclaim, approve/reject what they hold; withdraw; search; timelines |
-| `FINANCE` | read all claims; retry failed payouts; payout ledger; dead-letter replay; search |
+| `POLICYHOLDER` | submit claims against **their policies**; read, list, search and withdraw **own** claims; own policy book, communication history and PDF decision letters |
+| `ADJUSTER` | read all claims; review queue: claim/unclaim, approve/reject (with an optional advance %) what they hold; **second approvals of other adjusters' decisions**; fraud investigation context; open subrogation cases; search; timelines |
+| `FINANCE` | read all claims; retry failed payouts; release advance remainders; payout ledger; claims reserves; record recoveries and write-offs; dead-letter replay; search |
 | `ADMIN` | everything, plus statistics, live usage, account management (cannot lock themselves out) |
 | `SERVICE` | machine accounts — assessment-service signs in to read photos |
 
@@ -234,6 +251,15 @@ docker compose --profile ci up -d --build                         # + Jenkins
 First start builds the images and downloads the ONNX model (a few minutes). Profiles keep the footprint
 small: `core` alone is enough to demo the saga. Windows/WSL note: host port 4318 is in a reserved range,
 so Tempo's OTLP port is published as `14318`; containers use `tempo:4318` internally.
+
+### The console
+
+One Next.js application, four experiences by role: policyholders submit against their policy book and
+follow communications and decision letters; adjusters work the SLA-ordered review queue with SIU and
+second-approval views and a fraud-evidence drill-down; finance drives retries, advance remainders,
+recoveries, reserves and the ledger; admins get dashboards (current *and* lifetime status counts from
+the event log), live usage and account management. Every table pages server-side and has a debounced
+free-text filter; photos and PDFs are fetched with the bearer token.
 
 ### Scaling out live
 
@@ -279,14 +305,22 @@ curl -s -X POST localhost:8080/api/v1/claims -H "Authorization: Bearer $TOKEN" \
 |---|---|---|
 | `POST /api/v1/auth/login`, `GET /api/v1/auth/me` | anyone / any user | issue a token; who am I |
 | `POST /api/v1/claims` (JSON or multipart) | POLICYHOLDER | submit; `Idempotency-Key` replay-safe; rate-limited per `X-Client-Id` |
-| `GET /api/v1/claims`, `/{id}`, `/{id}/photos/{photoId}` | owner or staff | list (own for policyholders, `?status=` for staff), detail, photo bytes |
+| `GET /api/v1/claims?status=&q=&page=`, `/{id}`, `/{id}/photos/{photoId}` | owner or staff | paged list (own for policyholders), free-text `q`, detail, photo bytes |
+| `GET /api/v1/claims/{id}/payments`, `/communications` | owner or staff | money movements (advance/final); every message sent to the customer |
+| `GET /api/v1/claims/{id}/decision-document` | owner or staff | the formal decision letter as PDF (once a decision exists) |
+| `GET /api/v1/claims/{id}/fraud-context` | staff | evidence behind the flags: duplicate candidates + the policyholder's history (top 20 + totals) |
+| `POST /api/v1/claims/{id}/pay-remainder` | FINANCE, ADMIN | release the remaining payable amount after an advance |
+| `GET /api/v1/policies/mine`, `GET /api/v1/policies?page=` | POLICYHOLDER / staff | the caller's policy book; the whole book, paged |
+| `GET /api/v1/reserves/summary` | FINANCE, ADMIN | open exposure: totals and per-severity breakdown |
+| `POST /api/v1/claims/{id}/subrogation`; `GET /api/v1/subrogations?q=`, `/summary`; `POST /api/v1/subrogations/{id}/recoveries|write-off` | staff / FINANCE | open a recovery case after payout; list/summarise; record instalments or write off |
 | `POST /api/v1/claims/{id}/withdraw` | owner, ADJUSTER, ADMIN | withdraw while not terminal |
 | `POST /api/v1/claims/{id}/retry-payout` | FINANCE, ADMIN | `PAYOUT_FAILED → APPROVED`, optional corrected amount |
-| `GET /api/v1/reviews?scope=&severity=&escalatedOnly=&page=&size=`, `/summary` | ADJUSTER, ADMIN | paged queue by SLA due date; counters |
-| `POST /api/v1/reviews/{id}/claim|unclaim|approve|reject` | ADJUSTER, ADMIN | assignee = caller; only the holder decides |
+| `GET /api/v1/reviews?scope=&severity=&escalatedOnly=&fraudOnly=&q=&page=`, `/summary` | ADJUSTER, ADMIN | paged queue by SLA due date; SIU filter; free-text `q`; counters |
+| `POST /api/v1/reviews/{id}/claim|unclaim|approve|reject` | ADJUSTER, ADMIN | assignee = caller; only the holder decides; approve takes an optional `advancePercent` |
+| `GET /api/v1/reviews/second-approvals?q=`; `POST /api/v1/reviews/{id}/second-approval` | ADJUSTER, ADMIN | claims parked above the approval limit; four-eyes confirmation by a **different** approver |
 | `GET search-service/api/v1/search?q=&status=` | staff | fuzzy search over the projection |
 | `GET search-service/api/v1/claims/{id}/events` | staff | event timeline |
-| `GET payout-service/api/v1/payouts`, `/{claimId}` | FINANCE, ADMIN | ledger |
+| `GET payout-service/api/v1/payouts?q=&page=`, `/{claimId}` | FINANCE, ADMIN | paged ledger with DB-side aggregates; `q` matches transfer references and claim ids |
 | `POST payout-service/api/v1/dlq/replay?topic=` | FINANCE, ADMIN | re-drive a dead-letter topic |
 | `GET /api/v1/admin/statistics?days=`, `/usage`, `GET/POST/PATCH /api/v1/admin/users` | ADMIN | dashboard numbers, live meters, accounts |
 
@@ -302,7 +336,14 @@ mvn verify -DskipITs    # unit tests only
 mvn verify -Dperf       # additionally the performance ITs (tag `perf`)
 cd assessment-service && pip install -r requirements-dev.txt && python -m pytest
 cd adjuster-console && npm ci && npm run typecheck && npm run build
+docker run --rm --network host -v "$PWD/perf:/perf:ro" grafana/k6:0.56.0 run /perf/k6-scenarios.js
 ```
+
+The last command is the **mass business-scenario suite**: nine k6 scenarios drive 58 complete workflows
+concurrently against the live stack (real ML triage, real async payment gateway) — deductible
+arithmetic, four-eyes, advances, provider failures with retries, fraud flags, rejection letters,
+validation guards, subrogation instalments and withdrawals — asserting each step; a full run finishes
+with 341/341 checks green. Raise the submission rate limit first (see `perf/run.sh`).
 
 The pyramid is deliberately heavy in the middle: domain rules have unit tests (`ClaimTest`,
 `HeuristicAssessmentProviderTest`), use cases have Mockito tests, and everything that touches
@@ -318,6 +359,8 @@ integration tests are the ones that lie.
 | `PayoutSagaIT`, `PayoutThroughputIT` | reserve → transfer settles; redelivered approval handled once; failed transfer compensated and retryable; unaccepted payout reversed; poison → DLT → replay; 200 approvals delivered twice → exactly 200 payouts |
 | `ClaimProjectionIT`, `SearchPerformanceIT` | fuzzy search, stale-event rejection, event log, timeline endpoint; 300 events → searchable, query p95 |
 | `SecurityIT`, `RedisGuardsIT`, `ReviewQueueIT`, `AdminApiIT`, `ClaimControllerIT` | roles, ownership, token attacks; idempotent replay, atomic rate limit under a 40-request burst, window rollover with an injected `Clock`, 10 concurrent requests with one key → one claim; paging/filters; admin statistics and account rules; multipart photos, problem details, optimistic locking |
+| `PolicyAndSettlementIT`, `FourEyesAndPartialPayoutIT`, `SubrogationAndCommunicationsIT` | the insurance rules end to end: coverage/holder/period validation, cap + deductible arithmetic through to payout, four-eyes (same approver refused), advance → remainder with payment history, fraud flags and their evidence, reserve release, recovery instalments, the PDF decision letter parsed back and asserted |
+| `TableSearchIT`, `ArchitectureTest` (×2) | the `q` filter semantics per role; the layering rules (domain → application → api, no cycles) enforced on bytecode |
 | `ClaimApprovedContractTest` / `ClaimEventsContractTest` | the Pact message contract, consumer-written and provider-verified |
 
 Shared fixtures come from `platform-commons`' test-jar: `TestJwtTokenFactory` mints tokens exactly as
