@@ -10,15 +10,25 @@ import org.springframework.data.repository.query.Param;
 public interface OutboxEventRepository extends JpaRepository<OutboxEvent, Long> {
 
     /**
-     * {@code FOR UPDATE SKIP LOCKED} lets several service instances poll
-     * concurrently without publishing the same row twice or blocking each other.
+     * {@code FOR UPDATE SKIP LOCKED} lets several relays poll concurrently without
+     * double-publishing or blocking — but on its own it breaks per-aggregate ordering:
+     * while relay A holds an aggregate's row N, relay B would skip it and happily
+     * publish row N+1 first. The {@code not exists} guard therefore offers only the
+     * HEAD row of each aggregate: followers become eligible when their predecessor's
+     * publish has committed, never before. A crash between the Kafka send and the
+     * commit redelivers the head (consumers are idempotent) — still in order.
      */
     @Query(
             value =
                     """
-            select * from outbox_event
-            where published_at is null
-            order by id
+            select * from outbox_event o
+            where o.published_at is null
+              and not exists (
+                  select 1 from outbox_event previous
+                  where previous.aggregate_id = o.aggregate_id
+                    and previous.published_at is null
+                    and previous.id < o.id)
+            order by o.id
             limit :limit
             for update skip locked
             """,
