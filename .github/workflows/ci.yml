@@ -72,33 +72,23 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      # CRITICAL vulnerabilities with a published fix fail the build; the full HIGH+CRITICAL
-      # report is uploaded for triage. offline-scan avoids Maven Central rate limits.
+      # Plain docker instead of trivy-action: the marketplace action broke twice on deleted
+      # upstream tags; these exact commands are also runnable (and were verified) locally.
+      # CRITICAL vulnerabilities with a published fix fail the build; offline-scan avoids
+      # Maven Central rate limits during pom resolution.
       - name: Trivy gate (CRITICAL, fixed only)
-        uses: aquasecurity/trivy-action@v0.28.0
-        with:
-          scan-type: fs
-          scan-ref: .
-          scanners: vuln
-          severity: CRITICAL
-          ignore-unfixed: true
-          exit-code: 1
-        env:
-          TRIVY_OFFLINE_SCAN: true
+        run: |
+          docker run --rm -v "$PWD:/repo" -v "$HOME/.trivy-cache:/root/.cache" aquasec/trivy:0.58.1 \
+            fs --scanners vuln --severity CRITICAL --ignore-unfixed --offline-scan --timeout 15m \
+            --db-repository ghcr.io/aquasecurity/trivy-db,public.ecr.aws/aquasecurity/trivy-db,mirror.gcr.io/aquasec/trivy-db \
+            --exit-code 1 --quiet /repo
       - name: Trivy report (HIGH+CRITICAL)
         if: always()
-        uses: aquasecurity/trivy-action@v0.28.0
-        with:
-          scan-type: fs
-          scan-ref: .
-          scanners: vuln
-          severity: HIGH,CRITICAL
-          ignore-unfixed: true
-          exit-code: 0
-          format: json
-          output: trivy-report.json
-        env:
-          TRIVY_OFFLINE_SCAN: true
+        run: |
+          docker run --rm -v "$PWD:/repo" -v "$HOME/.trivy-cache:/root/.cache" aquasec/trivy:0.58.1 \
+            fs --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed --offline-scan --timeout 15m \
+            --db-repository ghcr.io/aquasecurity/trivy-db,public.ecr.aws/aquasecurity/trivy-db,mirror.gcr.io/aquasec/trivy-db \
+            --format json --output /repo/trivy-report.json --quiet /repo
       - name: Upload vulnerability report
         if: always()
         uses: actions/upload-artifact@v4
