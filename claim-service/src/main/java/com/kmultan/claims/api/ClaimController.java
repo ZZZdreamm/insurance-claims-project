@@ -112,12 +112,12 @@ public class ClaimController {
     @GetMapping
     public Page<ClaimResponse> list(
             @RequestParam(required = false) ClaimStatus status,
-            @RequestParam(required = false) String q,
+            @RequestParam(name = "q", required = false) String queryText,
             @PageableDefault(size = 20, sort = "createdAt", direction = Sort.Direction.DESC) Pageable pageable) {
         AuthenticatedUser user = AuthenticatedUser.current();
         Page<Claim> page = user.isStaff()
-                ? claimService.list(status, q, pageable)
-                : claimService.listOwnedBy(user.id(), status, q, pageable);
+                ? claimService.list(status, queryText, pageable)
+                : claimService.listOwnedBy(user.id(), status, queryText, pageable);
         return page.map(responses::toResponse);
     }
 

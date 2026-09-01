@@ -54,11 +54,16 @@ public class ReviewController {
             @RequestParam(required = false) Severity severity,
             @RequestParam(defaultValue = "false") boolean escalatedOnly,
             @RequestParam(defaultValue = "false") boolean fraudOnly,
-            @RequestParam(required = false) String q,
+            @RequestParam(name = "q", required = false) String queryText,
             @PageableDefault(size = 20) Pageable pageable) {
         String caller = AuthenticatedUser.current().username();
         ClaimService.ReviewQueueFilter filter = new ClaimService.ReviewQueueFilter(
-                scope == Scope.MINE ? caller : null, scope == Scope.UNASSIGNED, severity, escalatedOnly, fraudOnly, q);
+                scope == Scope.MINE ? caller : null,
+                scope == Scope.UNASSIGNED,
+                severity,
+                escalatedOnly,
+                fraudOnly,
+                queryText);
         return claimService.reviewQueue(filter, pageable).map(responses::toResponse);
     }
 
@@ -92,8 +97,9 @@ public class ReviewController {
     /** Claims parked above the approval limit, waiting for a second pair of eyes. */
     @GetMapping("/second-approvals")
     public Page<ClaimResponse> awaitingSecondApproval(
-            @RequestParam(required = false) String q, @PageableDefault(size = 20) Pageable pageable) {
-        return claimService.awaitingSecondApproval(q, pageable).map(responses::toResponse);
+            @RequestParam(name = "q", required = false) String queryText,
+            @PageableDefault(size = 20) Pageable pageable) {
+        return claimService.awaitingSecondApproval(queryText, pageable).map(responses::toResponse);
     }
 
     /** Four-eyes: must be a different person than the first approver. */

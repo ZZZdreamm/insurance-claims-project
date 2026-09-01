@@ -96,10 +96,10 @@ public class SubrogationController {
     @GetMapping("/subrogations")
     @PreAuthorize("hasAnyRole('FINANCE', 'ADMIN')")
     public org.springframework.data.domain.Page<SubrogationResponse> openCases(
-            @org.springframework.web.bind.annotation.RequestParam(required = false) String q,
+            @org.springframework.web.bind.annotation.RequestParam(name = "q", required = false) String queryText,
             @org.springframework.data.web.PageableDefault(size = 25, sort = "openedAt")
                     org.springframework.data.domain.Pageable pageable) {
-        return subrogationService.openCases(q, pageable).map(SubrogationResponse::from);
+        return subrogationService.openCases(queryText, pageable).map(SubrogationResponse::from);
     }
 
     @GetMapping("/subrogations/summary")

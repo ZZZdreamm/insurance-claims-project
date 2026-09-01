@@ -62,12 +62,12 @@ public class PayoutLedgerController {
      */
     @GetMapping
     public LedgerSummary ledger(
-            @org.springframework.web.bind.annotation.RequestParam(required = false) String q,
+            @org.springframework.web.bind.annotation.RequestParam(name = "q", required = false) String queryText,
             @org.springframework.data.web.PageableDefault(size = 25)
                     org.springframework.data.domain.Pageable pageable) {
         var sortedPage = org.springframework.data.domain.PageRequest.of(
                 pageable.getPageNumber(), pageable.getPageSize(), Sort.by(Sort.Direction.DESC, "updatedAt"));
-        org.springframework.data.domain.Page<FundReservation> reservationPage = pageMatching(q, sortedPage);
+        org.springframework.data.domain.Page<FundReservation> reservationPage = pageMatching(queryText, sortedPage);
         Map<UUID, Payout> payoutByClaim =
                 payouts
                         .findAllById(reservationPage.getContent().stream()
@@ -93,11 +93,11 @@ public class PayoutLedgerController {
 
     /** Matches transfer references (contains) and, when the query parses as a UUID, the claim id too. */
     private org.springframework.data.domain.Page<FundReservation> pageMatching(
-            String q, org.springframework.data.domain.Pageable pageable) {
-        if (q == null || q.isBlank()) {
+            String queryText, org.springframework.data.domain.Pageable pageable) {
+        if (queryText == null || queryText.isBlank()) {
             return reservations.findAll(pageable);
         }
-        String query = q.trim();
+        String query = queryText.trim();
         // references from the async gateway are UUID-shaped too, so a UUID query may be either a
         // claim id or a transfer reference — match both and take the union
         java.util.Set<UUID> matching = payouts.findTop100ByReferenceContainingIgnoreCase(query).stream()
